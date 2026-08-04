@@ -205,10 +205,15 @@ async function fetchPokemonApi(url, onRetry) {
     : new Error("Couldn't reach the Pokémon TCG API. Check your connection.");
 }
 
+// 250 is the Pokémon TCG API's max page size — using it means one request
+// covers virtually every search (even a name as common as "pikachu" has
+// nowhere near 250 cards across all sets). If a search somehow exceeds that,
+// totalCount lets the caller know results were truncated instead of silently
+// hiding the rest.
 async function searchCards(query, onRetry) {
-  const url = `${POKEMON_API_BASE}?q=${encodeURIComponent(`name:"${query}*"`)}&pageSize=20`;
+  const url = `${POKEMON_API_BASE}?q=${encodeURIComponent(`name:"${query}*"`)}&pageSize=250`;
   const body = await fetchPokemonApi(url, onRetry);
-  return body.data || [];
+  return { cards: body.data || [], totalCount: body.totalCount ?? body.data?.length ?? 0 };
 }
 
 async function fetchCardById(cardId, onRetry) {
@@ -708,11 +713,11 @@ async function doCardSearch() {
   els.searchResults.innerHTML = "";
   els.searchStatus.textContent = `Searching for "${query}"…`;
 
-  let rawResults;
+  let rawResults, totalCount;
   try {
-    rawResults = await searchCards(query, (attempt, total) => {
+    ({ cards: rawResults, totalCount } = await searchCards(query, (attempt, total) => {
       els.searchStatus.textContent = `Pokémon TCG API is being slow/flaky — retrying (${attempt}/${total})…`;
-    });
+    }));
   } catch (err) {
     els.searchStatus.textContent = err.message;
     return;
@@ -722,7 +727,9 @@ async function doCardSearch() {
     els.searchStatus.textContent = `No cards found matching "${query}".`;
     return;
   }
-  els.searchStatus.textContent = `Found ${rawResults.length} card${rawResults.length === 1 ? "" : "s"}.`;
+  els.searchStatus.textContent = totalCount > rawResults.length
+    ? `Showing ${rawResults.length} of ${totalCount} matching cards.`
+    : `Found ${rawResults.length} card${rawResults.length === 1 ? "" : "s"}.`;
 
   for (const rawCard of rawResults) {
     const card = { ...rawCard, signal: computeSignal(rawCard) };
