@@ -214,6 +214,14 @@ main { max-width: 1200px; margin: 0 auto; padding: 24px 20px 60px; }
 
 .modal-content h2 { margin-top: 0; }
 
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.modal-header h2 { margin: 0; }
+
 .field {
   display: block;
   margin: 14px 0;

@@ -113,15 +113,23 @@
         <input id="cardSearchInput" type="text" placeholder="Search for a Pokémon card by name…" />
         <button id="cardSearchBtn">🔍 Search</button>
       </section>
-
       <section id="searchStatus" class="status"></section>
-      <section id="searchResults" class="results-grid"></section>
 
       <h3 class="portfolio-heading">Saved Cards</h3>
       <section id="portfolioStatus" class="status"></section>
       <section id="portfolioResults" class="results-grid"></section>
     </div>
   </main>
+
+  <div id="searchResultsModal" class="modal hidden">
+    <div class="modal-content wide">
+      <div class="modal-header">
+        <h2>Search Results</h2>
+        <button id="closeSearchResultsBtn" class="ghost-btn">Close</button>
+      </div>
+      <section id="searchResultsGrid" class="results-grid"></section>
+    </div>
+  </div>
 
   <div id="settingsModal" class="modal hidden">
     <div class="modal-content">

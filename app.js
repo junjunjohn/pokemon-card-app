@@ -55,7 +55,9 @@ const els = {
   cardSearchInput: document.getElementById("cardSearchInput"),
   cardSearchBtn: document.getElementById("cardSearchBtn"),
   searchStatus: document.getElementById("searchStatus"),
-  searchResults: document.getElementById("searchResults"),
+  searchResultsModal: document.getElementById("searchResultsModal"),
+  searchResultsGrid: document.getElementById("searchResultsGrid"),
+  closeSearchResultsBtn: document.getElementById("closeSearchResultsBtn"),
   portfolioStatus: document.getElementById("portfolioStatus"),
   portfolioResults: document.getElementById("portfolioResults"),
 };
@@ -710,7 +712,6 @@ els.tabNav.addEventListener("click", (e) => {
 async function doCardSearch() {
   const query = els.cardSearchInput.value.trim();
   if (!query) return;
-  els.searchResults.innerHTML = "";
   els.searchStatus.textContent = `Searching for "${query}"…`;
 
   let rawResults, totalCount;
@@ -731,19 +732,24 @@ async function doCardSearch() {
     ? `Showing ${rawResults.length} of ${totalCount} matching cards.`
     : `Found ${rawResults.length} card${rawResults.length === 1 ? "" : "s"}.`;
 
+  els.searchResultsGrid.innerHTML = "";
   for (const rawCard of rawResults) {
     const card = { ...rawCard, signal: computeSignal(rawCard) };
     const addBtn = document.createElement("button");
     addBtn.className = "add-btn";
     addBtn.textContent = "+ Add";
     addBtn.addEventListener("click", () => addToPortfolio(card, addBtn));
-    els.searchResults.appendChild(buildCardTile(card, addBtn));
+    els.searchResultsGrid.appendChild(buildCardTile(card, addBtn));
   }
+  els.searchResultsModal.classList.remove("hidden");
 }
 
 els.cardSearchBtn.addEventListener("click", doCardSearch);
 els.cardSearchInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") doCardSearch();
+});
+els.closeSearchResultsBtn.addEventListener("click", () => {
+  els.searchResultsModal.classList.add("hidden");
 });
 
 // ---------- Portfolio (saved cards, backed by Supabase) ----------
@@ -765,6 +771,7 @@ async function addToPortfolio(card, addBtn) {
     return;
   }
   addBtn.textContent = "✓ Added";
+  loadPortfolio();
 }
 
 async function removePortfolioCard(cardId, removeBtn) {
@@ -863,7 +870,7 @@ els.saveSettingsBtn.addEventListener("click", () => {
   els.settingsModal.classList.add("hidden");
 });
 
-for (const modal of [els.settingsModal, els.cardModal]) {
+for (const modal of [els.settingsModal, els.cardModal, els.searchResultsModal]) {
   modal.addEventListener("click", (e) => {
     if (e.target === modal) modal.classList.add("hidden");
   });
