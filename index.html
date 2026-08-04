@@ -51,6 +51,13 @@
     </div>
     <div class="topbar-actions">
       <span id="currentUser" class="current-user"></span>
+      <label class="topbar-currency">Currency:
+        <select id="currencySelect" disabled title="Loading exchange rates…">
+          <option value="USD">USD ($)</option>
+          <option value="PHP">PHP (₱)</option>
+          <option value="JPY">JPY (¥)</option>
+        </select>
+      </label>
       <button id="logoutBtn" class="ghost-btn">Log out</button>
       <button id="settingsBtn" class="ghost-btn" title="API key settings">⚙️ Settings</button>
     </div>
@@ -70,13 +77,6 @@
         </div>
         <button id="refreshBtn">🔄 Refresh</button>
         <div class="filters">
-          <label>Currency:
-            <select id="currencySelect" disabled title="Loading exchange rates…">
-              <option value="USD">USD ($)</option>
-              <option value="PHP">PHP (₱)</option>
-              <option value="JPY">JPY (¥)</option>
-            </select>
-          </label>
           <label>Sort by:
             <select id="sortSelect">
               <option value="score-desc">AI Score (Buy first)</option>

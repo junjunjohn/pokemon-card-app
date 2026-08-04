@@ -278,6 +278,22 @@ footer a { color: var(--accent-2); }
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
 .current-user { font-size: 13px; color: var(--text-dim); }
 
+.topbar-currency {
+  font-size: 13px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.topbar-currency select {
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+}
+
 .auth-screen {
   min-height: 100vh;
   display: flex;

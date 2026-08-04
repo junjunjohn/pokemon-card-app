@@ -798,6 +798,21 @@ els.closeSearchResultsBtn.addEventListener("click", () => {
 
 // ---------- Portfolio (saved cards, backed by Supabase) ----------
 
+// Session tokens are single-use-at-a-time — logging into the same account
+// anywhere else (another device, another tab) invalidates this one. When
+// that happens, don't just show an error and leave the app in a broken
+// state — kick back to the login screen with a clear reason.
+function isSessionExpiredError(error) {
+  const msg = error?.message || "";
+  return msg.includes("Session expired") || msg.includes("Not logged in");
+}
+
+function handleSessionExpired() {
+  localStorage.removeItem(SESSION_KEY);
+  showAuthScreen();
+  els.loginError.textContent = "Your session expired (likely from logging in elsewhere) — please log in again.";
+}
+
 async function addToPortfolio(card, addBtn) {
   addBtn.disabled = true;
   addBtn.textContent = "Adding…";
@@ -809,6 +824,7 @@ async function addToPortfolio(card, addBtn) {
     p_set_name: card.set?.name || null,
   });
   if (error) {
+    if (isSessionExpiredError(error)) return handleSessionExpired();
     els.searchStatus.textContent = error.message;
     addBtn.disabled = false;
     addBtn.textContent = "+ Add";
@@ -825,11 +841,27 @@ async function removePortfolioCard(cardId, removeBtn) {
     p_card_id: cardId,
   });
   if (error) {
+    if (isSessionExpiredError(error)) return handleSessionExpired();
     els.portfolioStatus.textContent = error.message;
     removeBtn.disabled = false;
     return;
   }
   loadPortfolio();
+}
+
+let currentPortfolioCards = []; // enriched with .signal, like currentCards for Top Picks
+
+// Re-renders from already-fetched data — no network call. Used both after a
+// fresh load and when the currency selector changes while this tab is open.
+function renderPortfolio() {
+  els.portfolioResults.innerHTML = "";
+  for (const card of currentPortfolioCards) {
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "remove-btn";
+    removeBtn.textContent = "✕ Remove";
+    removeBtn.addEventListener("click", () => removePortfolioCard(card.id, removeBtn));
+    els.portfolioResults.appendChild(buildCardTile(card, removeBtn));
+  }
 }
 
 async function loadPortfolio() {
@@ -838,10 +870,12 @@ async function loadPortfolio() {
 
   const { data: rows, error } = await sb.rpc("get_portfolio", { p_session_token: getSessionToken() });
   if (error) {
+    if (isSessionExpiredError(error)) return handleSessionExpired();
     els.portfolioStatus.textContent = error.message;
     return;
   }
   if (!rows || rows.length === 0) {
+    currentPortfolioCards = [];
     els.portfolioStatus.textContent = "No cards saved yet — search above to add some.";
     return;
   }
@@ -872,15 +906,9 @@ async function loadPortfolio() {
     );
   }
 
+  currentPortfolioCards = cards;
   els.portfolioStatus.textContent = `${cards.length} card${cards.length === 1 ? "" : "s"} in your portfolio.`;
-  els.portfolioResults.innerHTML = "";
-  for (const card of cards) {
-    const removeBtn = document.createElement("button");
-    removeBtn.className = "remove-btn";
-    removeBtn.textContent = "✕ Remove";
-    removeBtn.addEventListener("click", () => removePortfolioCard(card.id, removeBtn));
-    els.portfolioResults.appendChild(buildCardTile(card, removeBtn));
-  }
+  renderPortfolio();
 }
 
 // ---------- Events ----------
@@ -890,6 +918,7 @@ els.sortSelect.addEventListener("change", renderResults);
 els.currencySelect.addEventListener("change", () => {
   selectedCurrency = els.currencySelect.value;
   renderResults();
+  renderPortfolio();
 });
 
 els.filterPills.addEventListener("click", (e) => {
