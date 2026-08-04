@@ -1,5 +1,5 @@
-// One-off build script — generates cards/*.json, a directory of small
-// static files (one per unique card name) plus cards/index.json, all
+// One-off build script — generates data/cards/*.json, a directory of small
+// static files (one per unique card name) plus data/cards/index.json, all
 // committed to the repo and served by GitHub Pages like any other file.
 // No database, no secret keys, nothing to configure.
 //
@@ -26,7 +26,7 @@ const PAGE_SIZE = 250;
 const RETRY_ATTEMPTS = 6; // this is a one-off background job, not user-facing — we can afford patience
 const RETRY_BASE_DELAY_MS = 3000;
 const DELAY_BETWEEN_PAGES_MS = 600;
-const OUTPUT_DIR = path.join(__dirname, "..", "cards");
+const OUTPUT_DIR = path.join(__dirname, "..", "data", "cards");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

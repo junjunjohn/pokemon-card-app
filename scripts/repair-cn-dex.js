@@ -12,7 +12,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const CN_DIR = path.join(__dirname, "..", "cards-cn");
+const CN_DIR = path.join(__dirname, "..", "data", "cards-cn");
 const RETRY_ATTEMPTS = 4;
 const RETRY_BASE_DELAY_MS = 2000;
 const CONCURRENCY = 8;

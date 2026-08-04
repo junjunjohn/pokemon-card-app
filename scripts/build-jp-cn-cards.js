@@ -1,6 +1,7 @@
-// One-off build script — generates cards-jp/*.json and cards-cn/*.json
-// (Japanese and Traditional Chinese card data from TCGdex), plus
-// dex-index.json mapping English species name -> National Pokédex number.
+// One-off build script — generates data/cards-jp/*.json and
+// data/cards-cn/*.json (Japanese and Traditional Chinese card data from
+// TCGdex), plus data/dex-index.json mapping English species name -> National
+// Pokédex number.
 //
 //   node scripts/build-jp-cn-cards.js
 //
@@ -20,8 +21,8 @@ const path = require("path");
 
 const TCGDEX_BASE = "https://api.tcgdex.net/v2";
 const LANGUAGES = [
-  { code: "ja", outDir: "cards-jp" },
-  { code: "zh-tw", outDir: "cards-cn" },
+  { code: "ja", outDir: "data/cards-jp" },
+  { code: "zh-tw", outDir: "data/cards-cn" },
 ];
 const CONCURRENCY = 8;
 const RETRY_ATTEMPTS = 4;
@@ -166,7 +167,8 @@ async function buildLanguage(lang, outDir) {
 
 async function main() {
   const dexIndex = await buildDexIndex();
-  fs.writeFileSync(path.join(__dirname, "..", "dex-index.json"), JSON.stringify(dexIndex));
+  fs.mkdirSync(path.join(__dirname, "..", "data"), { recursive: true });
+  fs.writeFileSync(path.join(__dirname, "..", "data", "dex-index.json"), JSON.stringify(dexIndex));
 
   for (const { code, outDir } of LANGUAGES) {
     await buildLanguage(code, outDir);

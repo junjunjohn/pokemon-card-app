@@ -213,9 +213,9 @@ async function fetchPokemonApi(url, onRetry) {
 
 // ---------- Card search (static files, built by scripts/build-cards-json.js) ----------
 //
-// Search no longer calls the live API at all — cards/index.json lists every
-// unique card name (as a slug), and cards/<slug>.json holds that name's
-// card(s). A search fetches only the handful of small files that actually
+// Search no longer calls the live API at all — data/cards/index.json lists
+// every unique card name (as a slug), and data/cards/<slug>.json holds that
+// name's card(s). A search fetches only the handful of small files that actually
 // match, never the whole catalog. Keep slugify() in sync with the one in
 // scripts/build-cards-json.js.
 
@@ -230,7 +230,7 @@ let cardIndexPromise = null;
 
 function loadCardIndex() {
   if (!cardIndexPromise) {
-    cardIndexPromise = fetch("cards/index.json")
+    cardIndexPromise = fetch("data/cards/index.json")
       .then((res) => {
         if (!res.ok) throw new Error(`Couldn't load the card index (${res.status}).`);
         return res.json();
@@ -247,22 +247,22 @@ function loadCardIndex() {
 //
 // A separate mirror, keyed by National Pokédex number instead of name slug —
 // Japanese/Chinese names are in non-Latin script, so they can't be
-// slugified the way English names are. dex-index.json (English species
+// slugified the way English names are. data/dex-index.json (English species
 // name -> dex number) is the bridge: searching "pikachu" looks up dex #25,
-// then checks whether cards-jp/0025.json / cards-cn/0025.json exist.
+// then checks whether data/cards-jp/0025.json / data/cards-cn/0025.json exist.
 // TCGdex's price field names differ from pokemontcg.io's (low/trend/avg vs.
 // lowPrice/trendPrice/averageSellPrice) — normalizeIntlCard() maps them so
 // the existing computeSignal()/getPriceBand() logic works unchanged.
 
 const INTL_LANGUAGES = [
-  { dir: "cards-jp", flag: "🇯🇵", label: "Japanese", lang: "ja" },
-  { dir: "cards-cn", flag: "🇨🇳", label: "Chinese", lang: "zh-tw" },
+  { dir: "data/cards-jp", flag: "🇯🇵", label: "Japanese", lang: "ja" },
+  { dir: "data/cards-cn", flag: "🇨🇳", label: "Chinese", lang: "zh-tw" },
 ];
 
 let dexIndexPromise = null;
 function loadDexIndex() {
   if (!dexIndexPromise) {
-    dexIndexPromise = fetch("dex-index.json")
+    dexIndexPromise = fetch("data/dex-index.json")
       .then((res) => (res.ok ? res.json() : {}))
       .catch(() => ({}));
   }
@@ -358,7 +358,7 @@ async function searchCards(query) {
 
   const files = await Promise.all(
     matchingSlugs.map((slug) =>
-      fetch(`cards/${slug}.json`)
+      fetch(`data/cards/${slug}.json`)
         .then((res) => (res.ok ? res.json() : null))
         .catch(() => null)
     )
