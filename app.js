@@ -243,6 +243,109 @@ function loadCardIndex() {
   return cardIndexPromise;
 }
 
+// ---------- Japanese / Chinese cards (built by scripts/build-jp-cn-cards.js) ----------
+//
+// A separate mirror, keyed by National Pokédex number instead of name slug —
+// Japanese/Chinese names are in non-Latin script, so they can't be
+// slugified the way English names are. dex-index.json (English species
+// name -> dex number) is the bridge: searching "pikachu" looks up dex #25,
+// then checks whether cards-jp/0025.json / cards-cn/0025.json exist.
+// TCGdex's price field names differ from pokemontcg.io's (low/trend/avg vs.
+// lowPrice/trendPrice/averageSellPrice) — normalizeIntlCard() maps them so
+// the existing computeSignal()/getPriceBand() logic works unchanged.
+
+const INTL_LANGUAGES = [
+  { dir: "cards-jp", flag: "🇯🇵", label: "Japanese", lang: "ja" },
+  { dir: "cards-cn", flag: "🇨🇳", label: "Chinese", lang: "zh-tw" },
+];
+
+let dexIndexPromise = null;
+function loadDexIndex() {
+  if (!dexIndexPromise) {
+    dexIndexPromise = fetch("dex-index.json")
+      .then((res) => (res.ok ? res.json() : {}))
+      .catch(() => ({}));
+  }
+  return dexIndexPromise;
+}
+
+const dexListPromises = {};
+function loadDexList(dir) {
+  if (!dexListPromises[dir]) {
+    dexListPromises[dir] = fetch(`${dir}/dex-list.json`)
+      .then((res) => (res.ok ? res.json() : []))
+      .catch(() => []);
+  }
+  return dexListPromises[dir];
+}
+
+function normalizeIntlCard(card, flag, label, lang) {
+  const cm = card.pricing?.cardmarket;
+  return {
+    id: card.id,
+    name: card.name,
+    // Our pre-built files already renamed localId -> number (see
+    // scripts/build-jp-cn-cards.js), but a live refetch via fetchIntlCardById
+    // gets the raw TCGdex shape, which still calls it localId.
+    number: card.number ?? card.localId,
+    rarity: card.rarity,
+    source: lang,
+    images: { small: card.image, large: card.image },
+    set: { name: card.set?.name ? `${flag} ${card.set.name} (${label})` : label },
+    cardmarket: cm
+      ? {
+          prices: {
+            lowPrice: cm.low,
+            trendPrice: cm.trend,
+            averageSellPrice: cm.avg,
+            avg1: cm.avg1,
+            avg7: cm.avg7,
+            avg30: cm.avg30,
+          },
+        }
+      : undefined,
+  };
+}
+
+async function fetchIntlJson(url) {
+  for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      if (attempt === RETRY_ATTEMPTS) return null;
+      await new Promise((r) => setTimeout(r, RETRY_BASE_DELAY_MS * attempt));
+    }
+  }
+  return null;
+}
+
+async function fetchIntlCardById(cardId, lang) {
+  const card = await fetchIntlJson(`https://api.tcgdex.net/v2/${lang}/cards/${encodeURIComponent(cardId)}`);
+  if (!card) return null;
+  const info = INTL_LANGUAGES.find((l) => l.lang === lang);
+  return normalizeIntlCard(card, info?.flag || "", info?.label || lang, lang);
+}
+
+async function searchIntlCards(dex) {
+  const results = [];
+  for (const { dir, flag, label, lang } of INTL_LANGUAGES) {
+    const dexList = await loadDexList(dir);
+    if (!dexList.includes(dex)) continue;
+    const filename = String(dex).padStart(4, "0") + ".json";
+    try {
+      const res = await fetch(`${dir}/${filename}`);
+      if (!res.ok) continue;
+      const file = await res.json();
+      results.push(...file.cards.map((c) => normalizeIntlCard(c, flag, label, lang)));
+    } catch {
+      // best-effort — a missing/failed language file just means fewer results, not an error
+    }
+  }
+  return results;
+}
+
 async function searchCards(query) {
   const index = await loadCardIndex();
   const querySlug = slugify(query);
@@ -262,6 +365,15 @@ async function searchCards(query) {
   );
 
   const cards = files.filter(Boolean).flatMap((file) => file.cards);
+
+  // Cross-language: does the query match a species name? If so, pull in
+  // Japanese/Chinese cards for that species too.
+  const dexIndex = await loadDexIndex();
+  const dex = dexIndex[querySlug];
+  if (dex) {
+    cards.push(...(await searchIntlCards(dex)));
+  }
+
   return { cards, totalCount: cards.length };
 }
 
@@ -953,6 +1065,7 @@ async function addToPortfolio(card, addBtn) {
     p_card_name: card.name,
     p_card_image: card.images?.small || null,
     p_set_name: card.set?.name || null,
+    p_source: card.source || "en",
   });
   if (error) {
     if (isSessionExpiredError(error)) return handleSessionExpired();
@@ -1015,10 +1128,14 @@ async function loadPortfolio() {
 
   const cards = [];
   for (const row of rows) {
+    const isIntl = row.source && row.source !== "en";
     let rawCard = readCardCache(row.card_id);
     if (!rawCard) {
       try {
-        rawCard = await fetchCardById(row.card_id);
+        // Japanese/Chinese cards live on a different API entirely (TCGdex, not
+        // pokemontcg.io) — calling the wrong one for a card's origin would just
+        // burn the full retry/timeout budget before falling back to nothing.
+        rawCard = isIntl ? await fetchIntlCardById(row.card_id, row.source) : await fetchCardById(row.card_id);
         if (rawCard) writeCardCache(row.card_id, rawCard);
       } catch {
         rawCard = null;

@@ -190,12 +190,19 @@ create table if not exists public.portfolio_cards (
   unique (user_id, card_id)
 );
 
+-- Which mirror a card came from ('en', 'ja', 'zh-tw') — needed so the
+-- client knows which API to call when refreshing its live price later.
+-- Defaults to 'en' so existing rows (added before this column existed)
+-- keep working unchanged.
+alter table public.portfolio_cards add column if not exists source text not null default 'en';
+
 alter table public.portfolio_cards enable row level security;
 -- No policies added on purpose — same locked-down pattern as public.users.
 -- Only reachable through the SECURITY DEFINER functions below.
 
 create or replace function public.add_portfolio_card(
-  p_session_token uuid, p_card_id text, p_card_name text, p_card_image text, p_set_name text
+  p_session_token uuid, p_card_id text, p_card_name text, p_card_image text, p_set_name text,
+  p_source text default 'en'
 )
 returns json
 language plpgsql
@@ -211,8 +218,8 @@ begin
     raise exception 'Missing card details.';
   end if;
 
-  insert into public.portfolio_cards (user_id, card_id, card_name, card_image, set_name)
-  values (v_user_id, p_card_id, p_card_name, p_card_image, p_set_name)
+  insert into public.portfolio_cards (user_id, card_id, card_name, card_image, set_name, source)
+  values (v_user_id, p_card_id, p_card_name, p_card_image, p_set_name, coalesce(p_source, 'en'))
   on conflict (user_id, card_id) do nothing;
 
   return json_build_object('ok', true);
