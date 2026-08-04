@@ -56,43 +56,71 @@
     </div>
   </header>
 
+  <nav class="tab-nav" id="tabNav">
+    <button class="tab-btn active" data-tab="topPicksTab">Top Picks</button>
+    <button class="tab-btn" data-tab="portfolioTab">My Portfolio</button>
+  </nav>
+
   <main>
-    <section class="search-bar">
-      <div class="top20-title">
-        <h2>Top Picks Right Now</h2>
-        <p class="card-set">Select Buy, Hold, or Sell below to see the top 10 in that category.</p>
-      </div>
-      <button id="refreshBtn">🔄 Refresh</button>
-      <div class="filters">
-        <label>Currency:
-          <select id="currencySelect" disabled title="Loading exchange rates…">
-            <option value="USD">USD ($)</option>
-            <option value="PHP">PHP (₱)</option>
-            <option value="JPY">JPY (¥)</option>
-          </select>
-        </label>
-        <label>Sort by:
-          <select id="sortSelect">
-            <option value="score-desc">AI Score (Buy first)</option>
-            <option value="score-asc">AI Score (Sell first)</option>
-            <option value="price-desc">Price (High to Low)</option>
-            <option value="price-asc">Price (Low to High)</option>
-            <option value="name">Name</option>
-          </select>
-        </label>
-      </div>
-    </section>
+    <div id="topPicksTab" class="tab-panel">
+      <section class="search-bar">
+        <div class="top20-title">
+          <h2>Top Picks Right Now</h2>
+          <p class="card-set">Select Buy, Hold, or Sell below to see the top 10 in that category.</p>
+        </div>
+        <button id="refreshBtn">🔄 Refresh</button>
+        <div class="filters">
+          <label>Currency:
+            <select id="currencySelect" disabled title="Loading exchange rates…">
+              <option value="USD">USD ($)</option>
+              <option value="PHP">PHP (₱)</option>
+              <option value="JPY">JPY (¥)</option>
+            </select>
+          </label>
+          <label>Sort by:
+            <select id="sortSelect">
+              <option value="score-desc">AI Score (Buy first)</option>
+              <option value="score-asc">AI Score (Sell first)</option>
+              <option value="price-desc">Price (High to Low)</option>
+              <option value="price-asc">Price (Low to High)</option>
+              <option value="name">Name</option>
+            </select>
+          </label>
+        </div>
+      </section>
 
-    <section class="filter-pills" id="filterPills">
-      <button class="pill active" data-filter="ALL">All</button>
-      <button class="pill" data-filter="BUY">Buy</button>
-      <button class="pill" data-filter="HOLD">Hold</button>
-      <button class="pill" data-filter="SELL">Sell</button>
-    </section>
+      <section class="filter-pills" id="filterPills">
+        <button class="pill active" data-filter="ALL">All</button>
+        <button class="pill" data-filter="BUY">Buy</button>
+        <button class="pill" data-filter="HOLD">Hold</button>
+        <button class="pill" data-filter="SELL">Sell</button>
+      </section>
 
-    <section id="status" class="status"></section>
+      <section id="status" class="status"></section>
 
-    <section id="results" class="results-grid"></section>
+      <section id="results" class="results-grid"></section>
+    </div>
+
+    <div id="portfolioTab" class="tab-panel hidden">
+      <section class="search-bar">
+        <div class="top20-title">
+          <h2>My Portfolio</h2>
+          <p class="card-set">Search for any Pokémon card and add it to your portfolio — it'll be here every time you log in.</p>
+        </div>
+      </section>
+
+      <section class="portfolio-search">
+        <input id="cardSearchInput" type="text" placeholder="Search for a Pokémon card by name…" />
+        <button id="cardSearchBtn">🔍 Search</button>
+      </section>
+
+      <section id="searchStatus" class="status"></section>
+      <section id="searchResults" class="results-grid"></section>
+
+      <h3 class="portfolio-heading">Saved Cards</h3>
+      <section id="portfolioStatus" class="status"></section>
+      <section id="portfolioResults" class="results-grid"></section>
+    </div>
   </main>
 
   <div id="settingsModal" class="modal hidden">

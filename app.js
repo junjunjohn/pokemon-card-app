@@ -49,6 +49,15 @@ const els = {
   showLogin: document.getElementById("showLogin"),
   logoutBtn: document.getElementById("logoutBtn"),
   currentUser: document.getElementById("currentUser"),
+  tabNav: document.getElementById("tabNav"),
+  topPicksTab: document.getElementById("topPicksTab"),
+  portfolioTab: document.getElementById("portfolioTab"),
+  cardSearchInput: document.getElementById("cardSearchInput"),
+  cardSearchBtn: document.getElementById("cardSearchBtn"),
+  searchStatus: document.getElementById("searchStatus"),
+  searchResults: document.getElementById("searchResults"),
+  portfolioStatus: document.getElementById("portfolioStatus"),
+  portfolioResults: document.getElementById("portfolioResults"),
 };
 
 let currentCards = []; // enriched with .signal
@@ -126,6 +135,28 @@ function writeCardsCache(cards, fetchedAt) {
   }
 }
 
+// Per-card cache for portfolio price lookups (each saved card needs its own
+// live-price fetch, separate from the top-20 popular-card scan above).
+function readCardCache(cardId) {
+  try {
+    const raw = localStorage.getItem(`pkmn_card_${cardId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed.fetchedAt || Date.now() - parsed.fetchedAt >= CACHE_TTL_MS) return null;
+    return parsed.card;
+  } catch {
+    return null;
+  }
+}
+
+function writeCardCache(cardId, card) {
+  try {
+    localStorage.setItem(`pkmn_card_${cardId}`, JSON.stringify({ card, fetchedAt: Date.now() }));
+  } catch {
+    // non-fatal
+  }
+}
+
 // The free/unauthenticated Pokémon TCG API tier is known to be flaky and
 // occasionally returns 500s under load — worse now that every visitor's
 // first (uncached) load hits it directly with no shared server-side cache
@@ -151,24 +182,16 @@ async function fetchCardsOnce(url, headers) {
   }
 }
 
-async function fetchTopPool(onRetry) {
-  const cached = readCardsCache();
-  if (cached) {
-    return { cards: cached.cards, fetchedAt: cached.fetchedAt, stale: false };
-  }
-
+function apiHeaders() {
   const key = localStorage.getItem(STORAGE_KEY);
-  const headers = key ? { "X-Api-Key": key } : {};
-  const query = "(" + POPULAR_POKEMON.map((n) => `name:"${n}*"`).join(" OR ") + ")";
-  const url = `${POKEMON_API_BASE}?q=${encodeURIComponent(query)}&pageSize=100&orderBy=-set.releaseDate`;
+  return key ? { "X-Api-Key": key } : {};
+}
 
-  let body;
+async function fetchPokemonApi(url, onRetry) {
   let lastError;
   for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
     try {
-      body = await fetchCardsOnce(url, headers);
-      lastError = null;
-      break;
+      return await fetchCardsOnce(url, apiHeaders());
     } catch (err) {
       lastError = err;
       if (attempt < RETRY_ATTEMPTS) {
@@ -177,11 +200,32 @@ async function fetchTopPool(onRetry) {
       }
     }
   }
-  if (lastError) {
-    throw lastError.message.includes("Pokémon TCG API")
-      ? lastError
-      : new Error("Couldn't reach the Pokémon TCG API. Check your connection.");
+  throw lastError.message.includes("Pokémon TCG API")
+    ? lastError
+    : new Error("Couldn't reach the Pokémon TCG API. Check your connection.");
+}
+
+async function searchCards(query, onRetry) {
+  const url = `${POKEMON_API_BASE}?q=${encodeURIComponent(`name:"${query}*"`)}&pageSize=20`;
+  const body = await fetchPokemonApi(url, onRetry);
+  return body.data || [];
+}
+
+async function fetchCardById(cardId, onRetry) {
+  const url = `${POKEMON_API_BASE}/${encodeURIComponent(cardId)}`;
+  const body = await fetchPokemonApi(url, onRetry);
+  return body.data || null;
+}
+
+async function fetchTopPool(onRetry) {
+  const cached = readCardsCache();
+  if (cached) {
+    return { cards: cached.cards, fetchedAt: cached.fetchedAt, stale: false };
   }
+
+  const query = "(" + POPULAR_POKEMON.map((n) => `name:"${n}*"`).join(" OR ") + ")";
+  const url = `${POKEMON_API_BASE}?q=${encodeURIComponent(query)}&pageSize=100&orderBy=-set.releaseDate`;
+  const body = await fetchPokemonApi(url, onRetry);
 
   const seen = new Set();
   const cards = (body.data || []).filter((card) => {
@@ -343,6 +387,35 @@ function topCardsForLabel(cards, label, n) {
   return filtered.slice(0, n);
 }
 
+// Shared by Top Picks, search results, and the portfolio list. `actionButton`
+// (optional) is appended below the signal and stops propagation so clicking
+// it doesn't also open the card detail modal.
+function buildCardTile(card, actionButton) {
+  const { signal } = card;
+  const tile = document.createElement("div");
+  tile.className = "card-tile";
+  tile.innerHTML = `
+    <img src="${card.images?.small || ""}" alt="${card.name}" loading="lazy" />
+    <div class="card-name">${card.name}</div>
+    <div class="card-set">${card.set?.name || ""} · #${card.number || "?"}</div>
+    <div class="price-row">
+      <span>Market</span>
+      <strong>${signal?.band ? fmt(signal.band.market, signal.band.currency) : "—"}</strong>
+    </div>
+    ${signal ? `<span class="signal ${signal.label}">${signal.label}</span>
+    <div class="signal-reason">${signal.reasons[0] || ""}</div>` : ""}
+  `;
+  if (actionButton) {
+    actionButton.addEventListener("click", (e) => e.stopPropagation());
+    const actionsRow = document.createElement("div");
+    actionsRow.className = "card-tile-actions";
+    actionsRow.appendChild(actionButton);
+    tile.appendChild(actionsRow);
+  }
+  tile.addEventListener("click", () => openCardDetail(card));
+  return tile;
+}
+
 function renderResults() {
   const filtered = activeFilter === "ALL"
     ? [
@@ -363,22 +436,7 @@ function renderResults() {
   }
 
   for (const card of sorted) {
-    const { signal } = card;
-    const tile = document.createElement("div");
-    tile.className = "card-tile";
-    tile.innerHTML = `
-      <img src="${card.images?.small || ""}" alt="${card.name}" loading="lazy" />
-      <div class="card-name">${card.name}</div>
-      <div class="card-set">${card.set?.name || ""} · #${card.number || "?"}</div>
-      <div class="price-row">
-        <span>Market</span>
-        <strong>${signal.band ? fmt(signal.band.market, signal.band.currency) : "—"}</strong>
-      </div>
-      <span class="signal ${signal.label}">${signal.label}</span>
-      <div class="signal-reason">${signal.reasons[0] || ""}</div>
-    `;
-    tile.addEventListener("click", () => openCardDetail(card));
-    els.results.appendChild(tile);
+    els.results.appendChild(buildCardTile(card));
   }
 }
 
@@ -525,8 +583,8 @@ function validateUsername(username) {
   return null;
 }
 
-function saveSession(username) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ username }));
+function saveSession(username, sessionToken) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ username, sessionToken }));
 }
 
 function readSession() {
@@ -536,6 +594,10 @@ function readSession() {
   } catch {
     return null;
   }
+}
+
+function getSessionToken() {
+  return readSession()?.sessionToken || null;
 }
 
 const CONFIG_MISSING_MESSAGE =
@@ -570,7 +632,7 @@ els.loginForm.addEventListener("submit", async (e) => {
     els.loginError.textContent = error.message;
     return;
   }
-  saveSession(data.username);
+  saveSession(data.username, data.session_token);
   showApp(data.username);
   loadFxRates();
   loadCards();
@@ -597,7 +659,7 @@ els.signupForm.addEventListener("submit", async (e) => {
     els.signupError.textContent = error.message;
     return;
   }
-  saveSession(data.username);
+  saveSession(data.username, data.session_token);
   showApp(data.username);
   loadFxRates();
   loadCards();
@@ -623,6 +685,145 @@ els.logoutBtn.addEventListener("click", () => {
   els.loginPassword.value = "";
   showAuthScreen();
 });
+
+// ---------- Tabs ----------
+
+els.tabNav.addEventListener("click", (e) => {
+  const btn = e.target.closest(".tab-btn");
+  if (!btn) return;
+  const targetId = btn.dataset.tab;
+  for (const b of els.tabNav.querySelectorAll(".tab-btn")) {
+    b.classList.toggle("active", b === btn);
+  }
+  els.topPicksTab.classList.toggle("hidden", targetId !== "topPicksTab");
+  els.portfolioTab.classList.toggle("hidden", targetId !== "portfolioTab");
+  if (targetId === "portfolioTab") loadPortfolio();
+});
+
+// ---------- Card search (Portfolio tab) ----------
+
+async function doCardSearch() {
+  const query = els.cardSearchInput.value.trim();
+  if (!query) return;
+  els.searchResults.innerHTML = "";
+  els.searchStatus.textContent = `Searching for "${query}"…`;
+
+  let rawResults;
+  try {
+    rawResults = await searchCards(query, (attempt, total) => {
+      els.searchStatus.textContent = `Pokémon TCG API is being slow/flaky — retrying (${attempt}/${total})…`;
+    });
+  } catch (err) {
+    els.searchStatus.textContent = err.message;
+    return;
+  }
+
+  if (rawResults.length === 0) {
+    els.searchStatus.textContent = `No cards found matching "${query}".`;
+    return;
+  }
+  els.searchStatus.textContent = `Found ${rawResults.length} card${rawResults.length === 1 ? "" : "s"}.`;
+
+  for (const rawCard of rawResults) {
+    const card = { ...rawCard, signal: computeSignal(rawCard) };
+    const addBtn = document.createElement("button");
+    addBtn.className = "add-btn";
+    addBtn.textContent = "+ Add";
+    addBtn.addEventListener("click", () => addToPortfolio(card, addBtn));
+    els.searchResults.appendChild(buildCardTile(card, addBtn));
+  }
+}
+
+els.cardSearchBtn.addEventListener("click", doCardSearch);
+els.cardSearchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") doCardSearch();
+});
+
+// ---------- Portfolio (saved cards, backed by Supabase) ----------
+
+async function addToPortfolio(card, addBtn) {
+  addBtn.disabled = true;
+  addBtn.textContent = "Adding…";
+  const { error } = await sb.rpc("add_portfolio_card", {
+    p_session_token: getSessionToken(),
+    p_card_id: card.id,
+    p_card_name: card.name,
+    p_card_image: card.images?.small || null,
+    p_set_name: card.set?.name || null,
+  });
+  if (error) {
+    els.searchStatus.textContent = error.message;
+    addBtn.disabled = false;
+    addBtn.textContent = "+ Add";
+    return;
+  }
+  addBtn.textContent = "✓ Added";
+}
+
+async function removePortfolioCard(cardId, removeBtn) {
+  removeBtn.disabled = true;
+  const { error } = await sb.rpc("remove_portfolio_card", {
+    p_session_token: getSessionToken(),
+    p_card_id: cardId,
+  });
+  if (error) {
+    els.portfolioStatus.textContent = error.message;
+    removeBtn.disabled = false;
+    return;
+  }
+  loadPortfolio();
+}
+
+async function loadPortfolio() {
+  els.portfolioResults.innerHTML = "";
+  els.portfolioStatus.textContent = "Loading your portfolio…";
+
+  const { data: rows, error } = await sb.rpc("get_portfolio", { p_session_token: getSessionToken() });
+  if (error) {
+    els.portfolioStatus.textContent = error.message;
+    return;
+  }
+  if (!rows || rows.length === 0) {
+    els.portfolioStatus.textContent = "No cards saved yet — search above to add some.";
+    return;
+  }
+
+  els.portfolioStatus.textContent = `Loading live prices for ${rows.length} saved card${rows.length === 1 ? "" : "s"}…`;
+
+  const cards = [];
+  for (const row of rows) {
+    let rawCard = readCardCache(row.card_id);
+    if (!rawCard) {
+      try {
+        rawCard = await fetchCardById(row.card_id);
+        if (rawCard) writeCardCache(row.card_id, rawCard);
+      } catch {
+        rawCard = null;
+      }
+    }
+    cards.push(
+      rawCard
+        ? { ...rawCard, signal: computeSignal(rawCard) }
+        : {
+            id: row.card_id,
+            name: row.card_name,
+            images: { small: row.card_image },
+            set: { name: row.set_name },
+            signal: { label: "HOLD", score: 0, reasons: ["Couldn't load a live price right now."], band: null },
+          }
+    );
+  }
+
+  els.portfolioStatus.textContent = `${cards.length} card${cards.length === 1 ? "" : "s"} in your portfolio.`;
+  els.portfolioResults.innerHTML = "";
+  for (const card of cards) {
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "remove-btn";
+    removeBtn.textContent = "✕ Remove";
+    removeBtn.addEventListener("click", () => removePortfolioCard(card.id, removeBtn));
+    els.portfolioResults.appendChild(buildCardTile(card, removeBtn));
+  }
+}
 
 // ---------- Events ----------
 
