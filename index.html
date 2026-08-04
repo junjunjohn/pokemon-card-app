@@ -16,8 +16,8 @@
 
       <form id="loginForm" class="auth-form">
         <h2>Log in</h2>
-        <label class="field">Email
-          <input id="loginEmail" type="email" autocomplete="email" required />
+        <label class="field">Username
+          <input id="loginUsername" type="text" autocomplete="username" required />
         </label>
         <label class="field">Password
           <input id="loginPassword" type="password" autocomplete="current-password" required />
@@ -29,13 +29,13 @@
 
       <form id="signupForm" class="auth-form hidden">
         <h2>Sign up</h2>
-        <label class="field">Email
-          <input id="signupEmail" type="email" autocomplete="email" required />
+        <label class="field">Username
+          <input id="signupUsername" type="text" autocomplete="username" required />
         </label>
         <label class="field">Password
           <input id="signupPassword" type="password" autocomplete="new-password" required />
         </label>
-        <p class="field-hint">At least 6 characters.</p>
+        <p class="field-hint">Username: 3–40 characters, letters/numbers/_/-/. only. Password: at least 6 characters.</p>
         <p id="signupError" class="auth-error"></p>
         <button type="submit" class="primary-btn">Create account</button>
         <p class="auth-switch">Already have an account? <a href="#" id="showLogin">Log in</a></p>

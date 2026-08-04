@@ -38,11 +38,11 @@ const els = {
   authScreen: document.getElementById("authScreen"),
   appRoot: document.getElementById("app"),
   loginForm: document.getElementById("loginForm"),
-  loginEmail: document.getElementById("loginEmail"),
+  loginUsername: document.getElementById("loginUsername"),
   loginPassword: document.getElementById("loginPassword"),
   loginError: document.getElementById("loginError"),
   signupForm: document.getElementById("signupForm"),
-  signupEmail: document.getElementById("signupEmail"),
+  signupUsername: document.getElementById("signupUsername"),
   signupPassword: document.getElementById("signupPassword"),
   signupError: document.getElementById("signupError"),
   showSignup: document.getElementById("showSignup"),
@@ -471,8 +471,43 @@ function showApp(username) {
   els.currentUser.textContent = username ? `👤 ${username}` : "";
 }
 
+// No email anywhere. Accounts live in our own "users" table (see
+// supabase-schema.sql) with passwords hashed inside Postgres via pgcrypto —
+// the hash is never sent to or seen by the browser. We call two narrow RPC
+// functions (signup_user / login_user) instead of Supabase's Auth service.
+//
+// Trade-off: since there's no backend session/JWT, "being logged in" is
+// just a flag we keep in localStorage — nothing server-side enforces it on
+// later requests. That's fine here because there's no actually-sensitive
+// data behind the login (card prices are public data anyway); it just gates
+// the UI, the way the original app's Refresh/filter state already does.
+const SESSION_KEY = "pkmn_user_session";
+
+function validateUsername(username) {
+  if (!username || username.length < 3 || username.length > 40) {
+    return "Username must be 3–40 characters.";
+  }
+  if (!/^[a-zA-Z0-9_.-]+$/.test(username)) {
+    return "Username can only contain letters, numbers, underscore, dot, and dash.";
+  }
+  return null;
+}
+
+function saveSession(username) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ username }));
+}
+
+function readSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 const CONFIG_MISSING_MESSAGE =
-  "Supabase isn't configured yet. Open config.js and paste in your Project URL and anon key from the Supabase dashboard (Project Settings → API).";
+  "Supabase isn't configured yet. Open config.js and paste in your Project URL and anon key from the Supabase dashboard (Project Settings → API), and run supabase-schema.sql in the SQL Editor.";
 
 async function checkAuth() {
   if (!supabaseConfigured) {
@@ -480,9 +515,9 @@ async function checkAuth() {
     els.loginError.textContent = CONFIG_MISSING_MESSAGE;
     return;
   }
-  const { data, error } = await sb.auth.getSession();
-  if (error || !data.session) return showAuthScreen();
-  showApp(data.session.user.email);
+  const session = readSession();
+  if (!session) return showAuthScreen();
+  showApp(session.username);
   loadFxRates();
   loadCards();
 }
@@ -494,15 +529,17 @@ els.loginForm.addEventListener("submit", async (e) => {
     els.loginError.textContent = CONFIG_MISSING_MESSAGE;
     return;
   }
-  const { data, error } = await sb.auth.signInWithPassword({
-    email: els.loginEmail.value.trim(),
-    password: els.loginPassword.value,
+  const username = els.loginUsername.value.trim();
+  const { data, error } = await sb.rpc("login_user", {
+    p_username: username,
+    p_password: els.loginPassword.value,
   });
   if (error) {
     els.loginError.textContent = error.message;
     return;
   }
-  showApp(data.user.email);
+  saveSession(data.username);
+  showApp(data.username);
   loadFxRates();
   loadCards();
 });
@@ -514,20 +551,22 @@ els.signupForm.addEventListener("submit", async (e) => {
     els.signupError.textContent = CONFIG_MISSING_MESSAGE;
     return;
   }
-  const { data, error } = await sb.auth.signUp({
-    email: els.signupEmail.value.trim(),
-    password: els.signupPassword.value,
+  const username = els.signupUsername.value.trim();
+  const usernameError = validateUsername(username);
+  if (usernameError) {
+    els.signupError.textContent = usernameError;
+    return;
+  }
+  const { data, error } = await sb.rpc("signup_user", {
+    p_username: username,
+    p_password: els.signupPassword.value,
   });
   if (error) {
     els.signupError.textContent = error.message;
     return;
   }
-  if (!data.session) {
-    // Email confirmation is enabled on the Supabase project — no session yet.
-    els.signupError.textContent = "Check your email to confirm your account, then log in.";
-    return;
-  }
-  showApp(data.user.email);
+  saveSession(data.username);
+  showApp(data.username);
   loadFxRates();
   loadCards();
 });
@@ -546,9 +585,9 @@ els.showLogin.addEventListener("click", (e) => {
   els.loginForm.classList.remove("hidden");
 });
 
-els.logoutBtn.addEventListener("click", async () => {
-  if (supabaseConfigured) await sb.auth.signOut();
-  els.loginEmail.value = "";
+els.logoutBtn.addEventListener("click", () => {
+  localStorage.removeItem(SESSION_KEY);
+  els.loginUsername.value = "";
   els.loginPassword.value = "";
   showAuthScreen();
 });
