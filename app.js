@@ -712,7 +712,14 @@ els.tabNav.addEventListener("click", (e) => {
 async function doCardSearch() {
   const query = els.cardSearchInput.value.trim();
   if (!query) return;
+
+  // Open the popup immediately with a loading state — the API can take
+  // 10-20+ seconds under load, and waiting for results before showing
+  // anything looked exactly like the click didn't register.
+  els.cardSearchBtn.disabled = true;
+  els.searchResultsGrid.innerHTML = "";
   els.searchStatus.textContent = `Searching for "${query}"…`;
+  els.searchResultsModal.classList.remove("hidden");
 
   let rawResults, totalCount;
   try {
@@ -722,6 +729,8 @@ async function doCardSearch() {
   } catch (err) {
     els.searchStatus.textContent = err.message;
     return;
+  } finally {
+    els.cardSearchBtn.disabled = false;
   }
 
   if (rawResults.length === 0) {
@@ -732,7 +741,6 @@ async function doCardSearch() {
     ? `Showing ${rawResults.length} of ${totalCount} matching cards.`
     : `Found ${rawResults.length} card${rawResults.length === 1 ? "" : "s"}.`;
 
-  els.searchResultsGrid.innerHTML = "";
   for (const rawCard of rawResults) {
     const card = { ...rawCard, signal: computeSignal(rawCard) };
     const addBtn = document.createElement("button");
@@ -741,7 +749,6 @@ async function doCardSearch() {
     addBtn.addEventListener("click", () => addToPortfolio(card, addBtn));
     els.searchResultsGrid.appendChild(buildCardTile(card, addBtn));
   }
-  els.searchResultsModal.classList.remove("hidden");
 }
 
 els.cardSearchBtn.addEventListener("click", doCardSearch);
