@@ -253,3 +253,48 @@ grant execute on function public.current_user_id(uuid) to anon;
 grant execute on function public.add_portfolio_card(uuid, text, text, text, text) to anon;
 grant execute on function public.remove_portfolio_card(uuid, text) to anon;
 grant execute on function public.get_portfolio(uuid) to anon;
+
+-- ============================================================
+-- Shared Top Picks cache (reduces load on the flaky external API)
+-- ============================================================
+-- Card price data is public — no user association, no protection beyond
+-- basic sanity needed. A single row (id = 1) holds the last successful
+-- 20-card scan; whichever visitor's browser succeeds at fetching fresh
+-- data writes it back here, so later visitors read from our own reliable
+-- database instead of hitting the flaky upstream API directly.
+
+create table if not exists public.cached_top_picks (
+  id int primary key default 1,
+  cards jsonb not null,
+  fetched_at timestamptz not null default now(),
+  constraint cached_top_picks_singleton check (id = 1)
+);
+
+alter table public.cached_top_picks enable row level security;
+
+drop policy if exists "Anyone can read the shared cache" on public.cached_top_picks;
+create policy "Anyone can read the shared cache"
+  on public.cached_top_picks for select
+  to anon
+  using (true);
+
+create or replace function public.refresh_top_picks_cache(p_cards jsonb)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_cards is null or jsonb_typeof(p_cards) <> 'array' or jsonb_array_length(p_cards) = 0 then
+    raise exception 'No cards provided.';
+  end if;
+
+  insert into public.cached_top_picks (id, cards, fetched_at)
+  values (1, p_cards, now())
+  on conflict (id) do update set cards = excluded.cards, fetched_at = excluded.fetched_at;
+
+  return json_build_object('ok', true);
+end;
+$$;
+
+grant execute on function public.refresh_top_picks_cache(jsonb) to anon;

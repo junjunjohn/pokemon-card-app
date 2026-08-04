@@ -224,10 +224,46 @@ async function fetchCardById(cardId, onRetry) {
   return body.data || null;
 }
 
+// Shared across every visitor (unlike the per-browser localStorage cache
+// above) — read-only for the client, refreshed by whoever's browser
+// happens to do a successful live fetch. Best-effort: any failure here
+// just means we fall back to the live API, same as before this existed.
+async function readSharedCache() {
+  try {
+    const { data, error } = await sb
+      .from("cached_top_picks")
+      .select("cards, fetched_at")
+      .eq("id", 1)
+      .maybeSingle();
+    if (error || !data) return null;
+    const fetchedAt = new Date(data.fetched_at).getTime();
+    if (Date.now() - fetchedAt >= CACHE_TTL_MS) return null;
+    return { cards: data.cards, fetchedAt };
+  } catch {
+    return null;
+  }
+}
+
+async function writeSharedCache(cards) {
+  try {
+    await sb.rpc("refresh_top_picks_cache", { p_cards: cards });
+  } catch {
+    // non-fatal — just means the next visitor falls back to the live API too
+  }
+}
+
 async function fetchTopPool(onRetry) {
   const cached = readCardsCache();
   if (cached) {
     return { cards: cached.cards, fetchedAt: cached.fetchedAt, stale: false };
+  }
+
+  if (supabaseConfigured) {
+    const shared = await readSharedCache();
+    if (shared) {
+      writeCardsCache(shared.cards, shared.fetchedAt); // warm the local cache too
+      return { cards: shared.cards, fetchedAt: shared.fetchedAt, stale: false };
+    }
   }
 
   const query = "(" + POPULAR_POKEMON.map((n) => `name:"${n}*"`).join(" OR ") + ")";
@@ -243,6 +279,7 @@ async function fetchTopPool(onRetry) {
 
   const fetchedAt = Date.now();
   writeCardsCache(cards, fetchedAt);
+  if (supabaseConfigured) writeSharedCache(cards);
   return { cards, fetchedAt, stale: false };
 }
 
