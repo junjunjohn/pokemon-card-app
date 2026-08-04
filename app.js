@@ -207,15 +207,55 @@ async function fetchPokemonApi(url, onRetry) {
     : new Error("Couldn't reach the Pokémon TCG API. Check your connection.");
 }
 
-// 250 is the Pokémon TCG API's max page size — using it means one request
-// covers virtually every search (even a name as common as "pikachu" has
-// nowhere near 250 cards across all sets). If a search somehow exceeds that,
-// totalCount lets the caller know results were truncated instead of silently
-// hiding the rest.
-async function searchCards(query, onRetry) {
-  const url = `${POKEMON_API_BASE}?q=${encodeURIComponent(`name:"${query}*"`)}&pageSize=250`;
-  const body = await fetchPokemonApi(url, onRetry);
-  return { cards: body.data || [], totalCount: body.totalCount ?? body.data?.length ?? 0 };
+// ---------- Card search (static files, built by scripts/build-cards-json.js) ----------
+//
+// Search no longer calls the live API at all — cards/index.json lists every
+// unique card name (as a slug), and cards/<slug>.json holds that name's
+// card(s). A search fetches only the handful of small files that actually
+// match, never the whole catalog. Keep slugify() in sync with the one in
+// scripts/build-cards-json.js.
+
+function slugify(name) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+let cardIndexPromise = null;
+
+function loadCardIndex() {
+  if (!cardIndexPromise) {
+    cardIndexPromise = fetch("cards/index.json")
+      .then((res) => {
+        if (!res.ok) throw new Error(`Couldn't load the card index (${res.status}).`);
+        return res.json();
+      })
+      .catch((err) => {
+        cardIndexPromise = null; // allow retrying on the next search rather than caching a failure
+        throw err;
+      });
+  }
+  return cardIndexPromise;
+}
+
+async function searchCards(query) {
+  const index = await loadCardIndex();
+  const querySlug = slugify(query);
+  if (!querySlug) return { cards: [], totalCount: 0 };
+
+  const matchingSlugs = index.filter((slug) => slug.startsWith(querySlug));
+
+  const files = await Promise.all(
+    matchingSlugs.map((slug) =>
+      fetch(`cards/${slug}.json`)
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null)
+    )
+  );
+
+  const cards = files.filter(Boolean).flatMap((file) => file.cards);
+  return { cards, totalCount: cards.length };
 }
 
 async function fetchCardById(cardId, onRetry) {
@@ -758,11 +798,9 @@ async function doCardSearch() {
   els.searchStatus.textContent = `Searching for "${query}"…`;
   els.searchResultsModal.classList.remove("hidden");
 
-  let rawResults, totalCount;
+  let rawResults;
   try {
-    ({ cards: rawResults, totalCount } = await searchCards(query, (attempt, total) => {
-      els.searchStatus.textContent = `Pokémon TCG API is being slow/flaky — retrying (${attempt}/${total})…`;
-    }));
+    ({ cards: rawResults } = await searchCards(query));
   } catch (err) {
     els.searchStatus.textContent = err.message;
     return;
@@ -774,9 +812,7 @@ async function doCardSearch() {
     els.searchStatus.textContent = `No cards found matching "${query}".`;
     return;
   }
-  els.searchStatus.textContent = totalCount > rawResults.length
-    ? `Showing ${rawResults.length} of ${totalCount} matching cards.`
-    : `Found ${rawResults.length} card${rawResults.length === 1 ? "" : "s"}.`;
+  els.searchStatus.textContent = `Found ${rawResults.length} card${rawResults.length === 1 ? "" : "s"}.`;
 
   for (const rawCard of rawResults) {
     const card = { ...rawCard, signal: computeSignal(rawCard) };
