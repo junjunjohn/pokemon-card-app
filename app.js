@@ -244,7 +244,10 @@ async function searchCards(query) {
   const querySlug = slugify(query);
   if (!querySlug) return { cards: [], totalCount: 0 };
 
-  const matchingSlugs = index.filter((slug) => slug.startsWith(querySlug));
+  // includes(), not startsWith() — a prefix-only match would miss cards like
+  // "Mega Gengar ex" or "Dark Gengar" when searching "gengar", since the
+  // query isn't at the very start of the name.
+  const matchingSlugs = index.filter((slug) => slug.includes(querySlug));
 
   const files = await Promise.all(
     matchingSlugs.map((slug) =>
