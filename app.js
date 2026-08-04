@@ -101,7 +101,10 @@ const POPULAR_POKEMON = [
   "eevee", "zacian",
 ];
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const REQUEST_TIMEOUT_MS = 15000;
+// The upstream API can take 20+ seconds even on a successful response under
+// load — a short timeout here converts "slow but would've worked" into a
+// hard failure. Give it real room before giving up.
+const REQUEST_TIMEOUT_MS = 25000;
 
 function readCardsCache() {
   try {
@@ -123,7 +126,32 @@ function writeCardsCache(cards, fetchedAt) {
   }
 }
 
-async function fetchTopPool() {
+// The free/unauthenticated Pokémon TCG API tier is known to be flaky and
+// occasionally returns 500s under load — worse now that every visitor's
+// first (uncached) load hits it directly with no shared server-side cache
+// behind it (the original serve.js only retried once, backed by a shared
+// cache absorbing most of the flakiness — we retry more here since a static
+// site has no such cushion).
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 1000; // backs off: 1s, then 2s between attempts
+
+async function fetchCardsOnce(url, headers) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { headers, signal: controller.signal });
+    if (!res.ok) throw new Error(`Pokémon TCG API error (${res.status}).`);
+    return await res.json().catch(() => ({}));
+  } catch (err) {
+    throw err.name === "AbortError"
+      ? new Error("The Pokémon TCG API took too long to respond.")
+      : err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchTopPool(onRetry) {
   const cached = readCardsCache();
   if (cached) {
     return { cards: cached.cards, fetchedAt: cached.fetchedAt, stale: false };
@@ -134,24 +162,26 @@ async function fetchTopPool() {
   const query = "(" + POPULAR_POKEMON.map((n) => `name:"${n}*"`).join(" OR ") + ")";
   const url = `${POKEMON_API_BASE}?q=${encodeURIComponent(query)}&pageSize=100&orderBy=-set.releaseDate`;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  let res;
-  try {
-    res = await fetch(url, { headers, signal: controller.signal });
-  } catch (err) {
-    throw err.name === "AbortError"
-      ? new Error("The Pokémon TCG API took too long to respond. Try refreshing again.")
+  let body;
+  let lastError;
+  for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+    try {
+      body = await fetchCardsOnce(url, headers);
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err;
+      if (attempt < RETRY_ATTEMPTS) {
+        onRetry?.(attempt, RETRY_ATTEMPTS);
+        await new Promise((r) => setTimeout(r, RETRY_BASE_DELAY_MS * attempt));
+      }
+    }
+  }
+  if (lastError) {
+    throw lastError.message.includes("Pokémon TCG API")
+      ? lastError
       : new Error("Couldn't reach the Pokémon TCG API. Check your connection.");
-  } finally {
-    clearTimeout(timer);
   }
-
-  if (!res.ok) {
-    throw new Error(`Pokémon TCG API error (${res.status}).`);
-  }
-  const body = await res.json().catch(() => ({}));
 
   const seen = new Set();
   const cards = (body.data || []).filter((card) => {
@@ -438,7 +468,9 @@ async function loadCards() {
   setStatus(`Loading price signals for ${BASKET_SIZE} popular Pokémon…`);
   els.results.innerHTML = "";
   try {
-    const { cards, fetchedAt, stale } = await fetchTopPool();
+    const { cards, fetchedAt, stale } = await fetchTopPool((attempt, total) => {
+      setStatus(`Pokémon TCG API is being slow/flaky — retrying (${attempt}/${total})…`);
+    });
     currentCards = cards
       .map((card) => ({ ...card, signal: computeSignal(card) }))
       .filter((card) => (card.signal.band?.market ?? 0) >= MIN_MARKET_PRICE);
