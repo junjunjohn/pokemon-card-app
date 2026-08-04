@@ -642,10 +642,34 @@ function showAuthScreen() {
   els.appRoot.classList.add("hidden");
 }
 
+// Top Picks is restricted to a single account — everyone else only gets
+// the Portfolio tab. This is a UI-level restriction, not a real security
+// boundary (there's no protected backend data behind it, same trust model
+// as the rest of this app), but it's enough to keep the tab out of sight
+// for everyone but the intended owner.
+const TOP_PICKS_ADMIN_USERNAME = "junjunjohn";
+
 function showApp(username) {
   els.authScreen.classList.add("hidden");
   els.appRoot.classList.remove("hidden");
   els.currentUser.textContent = username ? `👤 ${username}` : "";
+
+  const isAdmin = username?.toLowerCase() === TOP_PICKS_ADMIN_USERNAME;
+  const topPicksBtn = els.tabNav.querySelector('[data-tab="topPicksTab"]');
+  const portfolioBtn = els.tabNav.querySelector('[data-tab="portfolioTab"]');
+  topPicksBtn.classList.toggle("hidden", !isAdmin);
+
+  if (isAdmin) {
+    loadFxRates();
+    loadCards();
+  } else {
+    // Top Picks is inaccessible to this account — land on Portfolio instead.
+    topPicksBtn.classList.remove("active");
+    portfolioBtn.classList.add("active");
+    els.topPicksTab.classList.add("hidden");
+    els.portfolioTab.classList.remove("hidden");
+    loadPortfolio();
+  }
 }
 
 // No email anywhere. Accounts live in our own "users" table (see
@@ -699,8 +723,6 @@ async function checkAuth() {
   const session = readSession();
   if (!session) return showAuthScreen();
   showApp(session.username);
-  loadFxRates();
-  loadCards();
 }
 
 els.loginForm.addEventListener("submit", async (e) => {
@@ -721,8 +743,6 @@ els.loginForm.addEventListener("submit", async (e) => {
   }
   saveSession(data.username, data.session_token);
   showApp(data.username);
-  loadFxRates();
-  loadCards();
 });
 
 els.signupForm.addEventListener("submit", async (e) => {
@@ -748,8 +768,6 @@ els.signupForm.addEventListener("submit", async (e) => {
   }
   saveSession(data.username, data.session_token);
   showApp(data.username);
-  loadFxRates();
-  loadCards();
 });
 
 els.showSignup.addEventListener("click", (e) => {
