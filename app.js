@@ -1,4 +1,3 @@
-const STORAGE_KEY = "pkmn_api_key";
 const CARDS_CACHE_KEY = "pkmn_cards_cache";
 const TOP_N_PER_CATEGORY = 10;
 const BASKET_SIZE = 20; // how many popular Pokémon we scan — for status text only
@@ -28,11 +27,6 @@ const els = {
   filterPills: document.getElementById("filterPills"),
   status: document.getElementById("status"),
   results: document.getElementById("results"),
-  settingsBtn: document.getElementById("settingsBtn"),
-  settingsModal: document.getElementById("settingsModal"),
-  apiKeyInput: document.getElementById("apiKeyInput"),
-  saveSettingsBtn: document.getElementById("saveSettingsBtn"),
-  closeSettingsBtn: document.getElementById("closeSettingsBtn"),
   cardModal: document.getElementById("cardModal"),
   cardModalContent: document.getElementById("cardModalContent"),
   authScreen: document.getElementById("authScreen"),
@@ -86,6 +80,8 @@ async function loadFxRates() {
     fxRates = data.rates;
     els.currencySelect.disabled = false;
     els.currencySelect.title = "";
+    renderResults();
+    renderPortfolio();
   } catch {
     // Leave the dropdown disabled — prices just stay in their source currency.
   }
@@ -106,8 +102,9 @@ function convertPrice(amount, sourceCurrency) {
 // We're a static site now (no backend), so this calls the Pokémon TCG API
 // directly from the browser and caches the result in localStorage for 30
 // minutes — replicating the server-side cache serve.js used to keep, just
-// per-visitor instead of shared. The Pokémon TCG API works unauthenticated
-// at a low rate limit; the optional key from Settings raises that limit.
+// per-visitor instead of shared. The Pokémon TCG API works unauthenticated,
+// just at a lower rate limit — the retry/backoff logic below exists because
+// of that.
 const POKEMON_API_BASE = "https://api.pokemontcg.io/v2/cards";
 const POPULAR_POKEMON = [
   "charizard", "pikachu", "mewtwo", "mew", "umbreon", "sylveon",
@@ -188,16 +185,11 @@ async function fetchCardsOnce(url, headers) {
   }
 }
 
-function apiHeaders() {
-  const key = localStorage.getItem(STORAGE_KEY);
-  return key ? { "X-Api-Key": key } : {};
-}
-
 async function fetchPokemonApi(url, onRetry) {
   let lastError;
   for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
     try {
-      return await fetchCardsOnce(url, apiHeaders());
+      return await fetchCardsOnce(url, {});
     } catch (err) {
       lastError = err;
       if (attempt < RETRY_ATTEMPTS) {
@@ -782,8 +774,9 @@ function showApp(username) {
   topPicksBtn.classList.toggle("hidden", !canTopPicks);
   els.adminTabBtn.classList.toggle("hidden", !isAdmin);
 
+  loadFxRates();
+
   if (canTopPicks) {
-    loadFxRates();
     loadCards();
   } else {
     // Top Picks is inaccessible to this account — land on Portfolio instead.
@@ -1179,19 +1172,7 @@ els.filterPills.addEventListener("click", (e) => {
   renderResults();
 });
 
-els.settingsBtn.addEventListener("click", () => {
-  els.apiKeyInput.value = localStorage.getItem(STORAGE_KEY) || "";
-  els.settingsModal.classList.remove("hidden");
-});
-els.closeSettingsBtn.addEventListener("click", () => els.settingsModal.classList.add("hidden"));
-els.saveSettingsBtn.addEventListener("click", () => {
-  const val = els.apiKeyInput.value.trim();
-  if (val) localStorage.setItem(STORAGE_KEY, val);
-  else localStorage.removeItem(STORAGE_KEY);
-  els.settingsModal.classList.add("hidden");
-});
-
-for (const modal of [els.settingsModal, els.cardModal, els.searchResultsModal]) {
+for (const modal of [els.cardModal, els.searchResultsModal]) {
   modal.addEventListener("click", (e) => {
     if (e.target === modal) modal.classList.add("hidden");
   });
