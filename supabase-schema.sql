@@ -298,3 +298,154 @@ end;
 $$;
 
 grant execute on function public.refresh_top_picks_cache(jsonb) to anon;
+
+-- ============================================================
+-- Admin + per-screen permissions
+-- ============================================================
+-- Replaces a hardcoded username check with a real, admin-managed system.
+-- `permissions` is a free-form text array so new gated screens can be added
+-- later just by picking a new permission slug — no schema change needed.
+-- Currently the only slug in use is 'top_picks'.
+
+alter table public.users add column if not exists is_admin boolean not null default false;
+alter table public.users add column if not exists permissions text[] not null default '{}';
+
+-- Make junjunjohn an admin. Safe to re-run; edit the username below if it
+-- ever needs to change.
+update public.users set is_admin = true where lower(username) = 'junjunjohn';
+
+-- signup_user / login_user now also return is_admin + permissions so the
+-- client knows what to show immediately, without a separate round trip.
+create or replace function public.signup_user(p_username text, p_password text)
+returns json
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_id uuid;
+  v_token uuid;
+begin
+  if p_username is null or length(p_username) < 3 or length(p_username) > 40 then
+    raise exception 'Username must be 3–40 characters.';
+  end if;
+  if p_username !~ '^[a-zA-Z0-9_.-]+$' then
+    raise exception 'Username can only contain letters, numbers, underscore, dot, and dash.';
+  end if;
+  if p_password is null or length(p_password) < 6 then
+    raise exception 'Password must be at least 6 characters.';
+  end if;
+
+  if exists (select 1 from public.users where lower(username) = lower(p_username)) then
+    raise exception 'That username is already taken.';
+  end if;
+
+  v_token := gen_random_uuid();
+
+  insert into public.users (username, password_hash, session_token)
+  values (p_username, extensions.crypt(p_password, extensions.gen_salt('bf')), v_token)
+  returning id into v_id;
+
+  return json_build_object(
+    'id', v_id, 'username', p_username, 'session_token', v_token,
+    'is_admin', false, 'permissions', '[]'::json
+  );
+end;
+$$;
+
+create or replace function public.login_user(p_username text, p_password text)
+returns json
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_user public.users;
+  v_token uuid;
+begin
+  select * into v_user from public.users where lower(username) = lower(p_username);
+
+  if v_user.id is null or v_user.password_hash <> extensions.crypt(p_password, v_user.password_hash) then
+    raise exception 'Invalid username or password.';
+  end if;
+
+  v_token := gen_random_uuid();
+  update public.users set session_token = v_token where id = v_user.id;
+
+  return json_build_object(
+    'id', v_user.id, 'username', v_user.username, 'session_token', v_token,
+    'is_admin', v_user.is_admin, 'permissions', to_json(v_user.permissions)
+  );
+end;
+$$;
+
+-- Resolves a session_token to a user id AND requires that user to be an
+-- admin — raises otherwise. Every admin-only function below starts with this.
+create or replace function public.require_admin(p_session_token uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+  v_is_admin boolean;
+begin
+  v_id := public.current_user_id(p_session_token);
+  select is_admin into v_is_admin from public.users where id = v_id;
+  if not v_is_admin then
+    raise exception 'Admin access required.';
+  end if;
+  return v_id;
+end;
+$$;
+
+-- Admin only: list every user (never returns password_hash or session_token).
+create or replace function public.list_all_users(p_session_token uuid)
+returns table (id uuid, username text, is_admin boolean, permissions text[], created_at timestamptz)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public.require_admin(p_session_token);
+  return query
+    select u.id, u.username, u.is_admin, u.permissions, u.created_at
+    from public.users u
+    order by u.created_at desc;
+end;
+$$;
+
+-- Admin only: grant or revoke one named permission for a target user.
+create or replace function public.set_user_permission(
+  p_session_token uuid, p_target_user_id uuid, p_permission text, p_granted boolean
+)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public.require_admin(p_session_token);
+
+  if p_permission is null or length(p_permission) = 0 then
+    raise exception 'Missing permission name.';
+  end if;
+
+  if p_granted then
+    update public.users
+      set permissions = array(select distinct unnest(permissions || array[p_permission]))
+      where id = p_target_user_id;
+  else
+    update public.users
+      set permissions = array(select p from unnest(permissions) as p where p <> p_permission)
+      where id = p_target_user_id;
+  end if;
+
+  return json_build_object('ok', true);
+end;
+$$;
+
+grant execute on function public.require_admin(uuid) to anon;
+grant execute on function public.list_all_users(uuid) to anon;
+grant execute on function public.set_user_permission(uuid, uuid, text, boolean) to anon;

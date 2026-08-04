@@ -60,6 +60,10 @@ const els = {
   closeSearchResultsBtn: document.getElementById("closeSearchResultsBtn"),
   portfolioStatus: document.getElementById("portfolioStatus"),
   portfolioResults: document.getElementById("portfolioResults"),
+  adminTabBtn: document.getElementById("adminTabBtn"),
+  adminTab: document.getElementById("adminTab"),
+  adminStatus: document.getElementById("adminStatus"),
+  adminUsersTbody: document.getElementById("adminUsersTbody"),
 };
 
 let currentCards = []; // enriched with .signal
@@ -642,24 +646,31 @@ function showAuthScreen() {
   els.appRoot.classList.add("hidden");
 }
 
-// Top Picks is restricted to a single account — everyone else only gets
-// the Portfolio tab. This is a UI-level restriction, not a real security
-// boundary (there's no protected backend data behind it, same trust model
-// as the rest of this app), but it's enough to keep the tab out of sight
-// for everyone but the intended owner.
-const TOP_PICKS_ADMIN_USERNAME = "junjunjohn";
+// Admin-managed permissions (see supabase-schema.sql: is_admin, permissions).
+// Admins implicitly get every permission; everyone else needs the specific
+// slug in their permissions array. UI-level restriction, not a real
+// security boundary (no protected backend data behind it, same trust model
+// as the rest of this app) — but it keeps tabs out of sight for anyone who
+// hasn't been granted access.
+function hasPermission(session, permission) {
+  return !!(session?.isAdmin || session?.permissions?.includes(permission));
+}
 
 function showApp(username) {
   els.authScreen.classList.add("hidden");
   els.appRoot.classList.remove("hidden");
   els.currentUser.textContent = username ? `👤 ${username}` : "";
 
-  const isAdmin = username?.toLowerCase() === TOP_PICKS_ADMIN_USERNAME;
+  const session = readSession();
+  const canTopPicks = hasPermission(session, "top_picks");
+  const isAdmin = !!session?.isAdmin;
+
   const topPicksBtn = els.tabNav.querySelector('[data-tab="topPicksTab"]');
   const portfolioBtn = els.tabNav.querySelector('[data-tab="portfolioTab"]');
-  topPicksBtn.classList.toggle("hidden", !isAdmin);
+  topPicksBtn.classList.toggle("hidden", !canTopPicks);
+  els.adminTabBtn.classList.toggle("hidden", !isAdmin);
 
-  if (isAdmin) {
+  if (canTopPicks) {
     loadFxRates();
     loadCards();
   } else {
@@ -694,8 +705,11 @@ function validateUsername(username) {
   return null;
 }
 
-function saveSession(username, sessionToken) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ username, sessionToken }));
+function saveSession(username, sessionToken, isAdmin, permissions) {
+  localStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({ username, sessionToken, isAdmin: !!isAdmin, permissions: permissions || [] })
+  );
 }
 
 function readSession() {
@@ -741,7 +755,7 @@ els.loginForm.addEventListener("submit", async (e) => {
     els.loginError.textContent = error.message;
     return;
   }
-  saveSession(data.username, data.session_token);
+  saveSession(data.username, data.session_token, data.is_admin, data.permissions);
   showApp(data.username);
 });
 
@@ -766,7 +780,7 @@ els.signupForm.addEventListener("submit", async (e) => {
     els.signupError.textContent = error.message;
     return;
   }
-  saveSession(data.username, data.session_token);
+  saveSession(data.username, data.session_token, data.is_admin, data.permissions);
   showApp(data.username);
 });
 
@@ -802,8 +816,68 @@ els.tabNav.addEventListener("click", (e) => {
   }
   els.topPicksTab.classList.toggle("hidden", targetId !== "topPicksTab");
   els.portfolioTab.classList.toggle("hidden", targetId !== "portfolioTab");
+  els.adminTab.classList.toggle("hidden", targetId !== "adminTab");
   if (targetId === "portfolioTab") loadPortfolio();
+  if (targetId === "adminTab") loadAdminUsers();
 });
+
+// ---------- Admin (manage per-user Top Picks access) ----------
+
+async function toggleUserPermission(userId, permission, granted, checkbox) {
+  checkbox.disabled = true;
+  const { error } = await sb.rpc("set_user_permission", {
+    p_session_token: getSessionToken(),
+    p_target_user_id: userId,
+    p_permission: permission,
+    p_granted: granted,
+  });
+  if (error) {
+    if (isSessionExpiredError(error)) return handleSessionExpired();
+    els.adminStatus.textContent = error.message;
+    checkbox.checked = !granted; // revert the visual toggle
+  }
+  checkbox.disabled = false;
+}
+
+async function loadAdminUsers() {
+  els.adminStatus.textContent = "Loading users…";
+  els.adminUsersTbody.innerHTML = "";
+
+  const { data: users, error } = await sb.rpc("list_all_users", { p_session_token: getSessionToken() });
+  if (error) {
+    if (isSessionExpiredError(error)) return handleSessionExpired();
+    els.adminStatus.textContent = error.message;
+    return;
+  }
+
+  els.adminStatus.textContent = `${users.length} user${users.length === 1 ? "" : "s"}.`;
+  for (const user of users) {
+    const row = document.createElement("tr");
+
+    const joined = new Date(user.created_at).toLocaleDateString(undefined, {
+      year: "numeric", month: "short", day: "numeric",
+    });
+
+    row.innerHTML = `
+      <td>${user.username}</td>
+      <td>${joined}</td>
+      <td class="${user.is_admin ? "admin-badge" : ""}">${user.is_admin ? "Yes" : ""}</td>
+      <td></td>
+    `;
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = user.is_admin || (user.permissions || []).includes("top_picks");
+    checkbox.disabled = user.is_admin; // admins always have access — nothing to toggle
+    checkbox.title = user.is_admin ? "Admins always have access" : "";
+    checkbox.addEventListener("change", () => {
+      toggleUserPermission(user.id, "top_picks", checkbox.checked, checkbox);
+    });
+    row.lastElementChild.appendChild(checkbox);
+
+    els.adminUsersTbody.appendChild(row);
+  }
+}
 
 // ---------- Card search (Portfolio tab) ----------
 

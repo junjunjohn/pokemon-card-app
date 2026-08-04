@@ -66,6 +66,7 @@
   <nav class="tab-nav" id="tabNav">
     <button class="tab-btn active" data-tab="topPicksTab">Top Picks</button>
     <button class="tab-btn" data-tab="portfolioTab">My Portfolio</button>
+    <button class="tab-btn hidden" data-tab="adminTab" id="adminTabBtn">Admin</button>
   </nav>
 
   <main>
@@ -117,6 +118,29 @@
       <h3 class="portfolio-heading">Saved Cards</h3>
       <section id="portfolioStatus" class="status"></section>
       <section id="portfolioResults" class="results-grid"></section>
+    </div>
+
+    <div id="adminTab" class="tab-panel hidden">
+      <section class="search-bar">
+        <div class="top20-title">
+          <h2>Admin</h2>
+          <p class="card-set">Grant or revoke Top Picks access per user.</p>
+        </div>
+      </section>
+      <section id="adminStatus" class="status"></section>
+      <div class="admin-table-wrap">
+        <table class="admin-table" id="adminUsersTable">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Joined</th>
+              <th>Admin</th>
+              <th>Top Picks Access</th>
+            </tr>
+          </thead>
+          <tbody id="adminUsersTbody"></tbody>
+        </table>
+      </div>
     </div>
   </main>
 
