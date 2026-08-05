@@ -455,4 +455,159 @@ $$;
 
 grant execute on function public.require_admin(uuid) to anon;
 grant execute on function public.list_all_users(uuid) to anon;
+
+-- ============================================================
+-- Binders (multiple, per user) + positions for Portfolio cards
+-- ============================================================
+-- Users can own several named binders (e.g. "Vintage", "Charizard only"),
+-- each with its own grid size. A card's spot is binder_id + one flat
+-- integer position within that binder (null binder_id = not placed, still
+-- sits in the unplaced "Saved Cards" pool). The client derives page/row/col
+-- from the flat position against the owning binder's cols — so the grid
+-- size is fixed per binder at creation time rather than reflowing later.
+
+create table if not exists public.binders (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  name text not null,
+  cols int not null,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now(),
+  constraint binders_cols_check check (cols in (2, 3, 4))
+);
+
+alter table public.binders enable row level security;
+-- No policies added on purpose — same locked-down pattern as portfolio_cards,
+-- only reachable through the SECURITY DEFINER functions below.
+
+alter table public.portfolio_cards add column if not exists binder_id uuid references public.binders(id) on delete set null;
+
+-- Superseded by the (binder_id, binder_position) index below — binder_position
+-- is only meaningful together with a binder_id now that binders are plural.
+drop index if exists public.portfolio_cards_binder_position_uniq;
+
+create unique index if not exists portfolio_cards_binder_position_uniq
+  on public.portfolio_cards (binder_id, binder_position)
+  where binder_id is not null and binder_position is not null;
+
+create or replace function public.create_binder(p_session_token uuid, p_name text, p_cols int)
+returns public.binders
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid;
+  v_binder public.binders;
+begin
+  v_user_id := public.current_user_id(p_session_token);
+
+  if p_cols is null or p_cols not in (2, 3, 4) then
+    raise exception 'Binder size must be 2x2, 3x3, or 4x4.';
+  end if;
+  if p_name is null or length(trim(p_name)) = 0 then
+    raise exception 'Binder needs a name.';
+  end if;
+
+  insert into public.binders (user_id, name, cols, sort_order)
+  values (
+    v_user_id, trim(p_name), p_cols,
+    (select coalesce(max(sort_order), -1) + 1 from public.binders where user_id = v_user_id)
+  )
+  returning * into v_binder;
+
+  return v_binder;
+end;
+$$;
+
+create or replace function public.list_binders(p_session_token uuid)
+returns setof public.binders
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid;
+begin
+  v_user_id := public.current_user_id(p_session_token);
+  return query
+    select * from public.binders where user_id = v_user_id order by sort_order, created_at;
+end;
+$$;
+
+-- Cards placed in the deleted binder fall back to the unplaced pool
+-- automatically (binder_id -> null via the FK's ON DELETE SET NULL above).
+create or replace function public.delete_binder(p_session_token uuid, p_binder_id uuid)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid;
+begin
+  v_user_id := public.current_user_id(p_session_token);
+  delete from public.binders where id = p_binder_id and user_id = v_user_id;
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- Replaces the single-binder (3-arg) version from the earlier migration —
+-- must be dropped explicitly since a new arg list would otherwise just add
+-- an overload rather than replace it.
+drop function if exists public.set_portfolio_card_position(uuid, text, int);
+
+-- Places p_card_id at p_position within p_binder_id. If another card already
+-- occupies that slot, the two swap (the occupant takes p_card_id's old spot,
+-- which may be no binder at all — i.e. dragging an unplaced card onto a
+-- filled slot bumps the occupant back out to the pool). p_binder_id = null
+-- (with p_position ignored/null) un-places a card back to the pool.
+create or replace function public.set_portfolio_card_position(
+  p_session_token uuid, p_card_id text, p_binder_id uuid, p_position int
+)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid;
+  v_occupant_id text;
+  v_old_binder_id uuid;
+  v_old_position int;
+begin
+  v_user_id := public.current_user_id(p_session_token);
+
+  if p_binder_id is not null and not exists (
+    select 1 from public.binders where id = p_binder_id and user_id = v_user_id
+  ) then
+    raise exception 'Binder not found.';
+  end if;
+
+  select binder_id, binder_position into v_old_binder_id, v_old_position
+    from public.portfolio_cards where user_id = v_user_id and card_id = p_card_id;
+
+  if p_binder_id is not null and p_position is not null then
+    select card_id into v_occupant_id
+      from public.portfolio_cards
+      where user_id = v_user_id and binder_id = p_binder_id and binder_position = p_position
+        and card_id <> p_card_id;
+  end if;
+
+  if v_occupant_id is not null then
+    update public.portfolio_cards set binder_id = v_old_binder_id, binder_position = v_old_position
+      where user_id = v_user_id and card_id = v_occupant_id;
+  end if;
+
+  update public.portfolio_cards set binder_id = p_binder_id, binder_position = p_position
+    where user_id = v_user_id and card_id = p_card_id;
+
+  return json_build_object('ok', true);
+end;
+$$;
+
+grant execute on function public.create_binder(uuid, text, int) to anon;
+grant execute on function public.list_binders(uuid) to anon;
+grant execute on function public.delete_binder(uuid, uuid) to anon;
+grant execute on function public.set_portfolio_card_position(uuid, text, uuid, int) to anon;
 grant execute on function public.set_user_permission(uuid, uuid, text, boolean) to anon;

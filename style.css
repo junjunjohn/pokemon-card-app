@@ -390,6 +390,160 @@ footer a { color: var(--accent-2); }
 
 .portfolio-heading { margin: 28px 0 12px; font-size: 17px; }
 
+/* ---------- Binder ---------- */
+
+.binder-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.binder-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.binder-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.binder-tab:hover { color: var(--text); border-color: var(--accent-2); }
+.binder-tab.active { color: var(--text); border-color: var(--accent); background: var(--panel-2); }
+.binder-tab-size { color: var(--text-dim); font-weight: 400; font-size: 12px; }
+.binder-tab-delete {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 50%;
+}
+.binder-tab-delete:hover { color: var(--sell); background: rgba(255, 93, 93, 0.15); }
+
+.binder-size-pills { display: flex; gap: 8px; }
+.binder-size-btn {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.binder-size-btn:hover { color: var(--text); border-color: var(--accent-2); }
+.binder-size-btn.active { color: var(--text); border-color: var(--accent); background: var(--panel-2); }
+
+.binder-page-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.binder-page-nav button {
+  padding: 4px 12px;
+  font-size: 16px;
+  line-height: 1;
+}
+.binder-page-nav button:disabled { opacity: 0.35; cursor: default; }
+
+.binder {
+  display: flex;
+  background: linear-gradient(135deg, #5b3a29, #3c2418);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  margin-bottom: 8px;
+}
+
+.binder-spine {
+  flex: 0 0 28px;
+  border-radius: 8px;
+  margin-right: 16px;
+  background: linear-gradient(180deg, #4a2e20, #2c1a11);
+  background-image:
+    radial-gradient(circle, #d8c48a 0 5px, transparent 5.5px),
+    linear-gradient(180deg, #4a2e20, #2c1a11);
+  background-repeat: repeat-y;
+  background-position: center 24px;
+  background-size: 100% 64px, 100% 100%;
+}
+
+.binder-page {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(var(--binder-cols, 3), 1fr);
+  gap: 14px;
+  background: #f4ecd8;
+  border-radius: 10px;
+  padding: 18px;
+  min-width: 0;
+}
+
+.binder-slot {
+  position: relative;
+  aspect-ratio: 5 / 7;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.binder-slot.empty {
+  border: 2px dashed rgba(60, 36, 24, 0.25);
+  background: rgba(60, 36, 24, 0.04);
+}
+.binder-slot.filled {
+  border: 1px solid rgba(60, 36, 24, 0.15);
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+}
+.binder-slot.drag-over {
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px rgba(61, 125, 202, 0.35);
+}
+.binder-slot img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.binder-slot-empty-icon {
+  font-size: 22px;
+  color: rgba(60, 36, 24, 0.25);
+  font-weight: 300;
+}
+.binder-slot-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7);
+}
+.binder-slot-dot.BUY { background: var(--buy); }
+.binder-slot-dot.HOLD { background: var(--hold); }
+.binder-slot-dot.SELL { background: var(--sell); }
+
+.card-tile.draggable { cursor: grab; }
+.card-tile.draggable:active { cursor: grabbing; }
+
+@media (max-width: 640px) {
+  .binder { padding: 12px; }
+  .binder-spine { flex-basis: 18px; margin-right: 10px; }
+  .binder-page { gap: 8px; padding: 10px; }
+  .binder-slot-empty-icon { font-size: 16px; }
+}
+
 .admin-table-wrap { overflow-x: auto; }
 .admin-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .admin-table th, .admin-table td {

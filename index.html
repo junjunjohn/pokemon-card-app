@@ -105,7 +105,7 @@
       <section class="search-bar">
         <div class="top20-title">
           <h2>My Portfolio</h2>
-          <p class="card-set">Search for any Pokémon card and add it to your portfolio — it'll be here every time you log in.</p>
+          <p class="card-set">Search for any Pokémon card and add it to your portfolio — then drag it into your binder.</p>
         </div>
       </section>
 
@@ -113,6 +113,28 @@
         <input id="cardSearchInput" type="text" placeholder="Search for a Pokémon card by name…" />
         <button id="cardSearchBtn">🔍 Search</button>
       </section>
+
+      <h3 class="portfolio-heading">Binders</h3>
+      <section class="binder-controls">
+        <div id="binderTabs" class="binder-tabs"></div>
+        <button id="addBinderBtn" class="ghost-btn">+ Add Binder</button>
+      </section>
+
+      <div id="binderEmptyState" class="empty-state hidden">
+        No binders yet — add one to start slotting in cards.
+      </div>
+
+      <div id="binderWrap" class="hidden">
+        <section class="binder-page-nav">
+          <button id="binderPrevPage" class="ghost-btn" aria-label="Previous page">‹</button>
+          <span id="binderPageLabel">Page 1 of 1</span>
+          <button id="binderNextPage" class="ghost-btn" aria-label="Next page">›</button>
+        </section>
+        <div class="binder">
+          <div class="binder-spine"></div>
+          <section id="binderPage" class="binder-page"></section>
+        </div>
+      </div>
 
       <h3 class="portfolio-heading">Saved Cards</h3>
       <section id="portfolioStatus" class="status"></section>
@@ -156,6 +178,28 @@
 
   <div id="cardModal" class="modal hidden">
     <div class="modal-content wide" id="cardModalContent"></div>
+  </div>
+
+  <div id="createBinderModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>New Binder</h2>
+        <button id="closeCreateBinderBtn" class="ghost-btn">Close</button>
+      </div>
+      <label class="field">Name
+        <input id="newBinderName" type="text" placeholder="e.g. Vintage Binder" maxlength="40" />
+      </label>
+      <p class="field-hint">Size</p>
+      <div class="binder-size-pills" id="newBinderSizePills">
+        <button type="button" class="binder-size-btn" data-size="2">2×2</button>
+        <button type="button" class="binder-size-btn active" data-size="3">3×3</button>
+        <button type="button" class="binder-size-btn" data-size="4">4×4</button>
+      </div>
+      <p id="createBinderStatus" class="status"></p>
+      <div class="modal-actions">
+        <button id="createBinderConfirmBtn" class="primary-btn">Create</button>
+      </div>
+    </div>
   </div>
 
   <footer>

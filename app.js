@@ -58,12 +58,37 @@ const els = {
   adminTab: document.getElementById("adminTab"),
   adminStatus: document.getElementById("adminStatus"),
   adminUsersTbody: document.getElementById("adminUsersTbody"),
+  binderTabs: document.getElementById("binderTabs"),
+  addBinderBtn: document.getElementById("addBinderBtn"),
+  binderEmptyState: document.getElementById("binderEmptyState"),
+  binderWrap: document.getElementById("binderWrap"),
+  binderPage: document.getElementById("binderPage"),
+  binderPageLabel: document.getElementById("binderPageLabel"),
+  binderPrevPage: document.getElementById("binderPrevPage"),
+  binderNextPage: document.getElementById("binderNextPage"),
+  createBinderModal: document.getElementById("createBinderModal"),
+  closeCreateBinderBtn: document.getElementById("closeCreateBinderBtn"),
+  newBinderName: document.getElementById("newBinderName"),
+  newBinderSizePills: document.getElementById("newBinderSizePills"),
+  createBinderStatus: document.getElementById("createBinderStatus"),
+  createBinderConfirmBtn: document.getElementById("createBinderConfirmBtn"),
 };
 
 let currentCards = []; // enriched with .signal
 let activeFilter = "ALL"; // "ALL" | "BUY" | "HOLD" | "SELL"
 let selectedCurrency = "USD";
 let fxRates = null; // { EUR, JPY, PHP } — units per 1 USD
+
+// ---------- Binder ----------
+// Users own multiple named binders (public.binders), each with a fixed grid
+// size chosen at creation. A card's spot is binder_id + one flat integer
+// position within that binder (see supabase-schema.sql) — page/row/col are
+// derived from the flat position against the owning binder's cols.
+const ACTIVE_BINDER_KEY = "pkmn_active_binder_id";
+let userBinders = []; // [{id, name, cols, sort_order, created_at}]
+let activeBinderId = localStorage.getItem(ACTIVE_BINDER_KEY) || null;
+let binderPageIndex = 0;
+let newBinderSize = 3; // selection in the "New Binder" modal, before it's created
 
 // ---------- Currency conversion ----------
 // Live daily rates from the European Central Bank via frankfurter.dev (free, no key).
@@ -585,7 +610,7 @@ function topCardsForLabel(cards, label, n) {
 // Shared by Top Picks, search results, and the portfolio list. `actionButton`
 // (optional) is appended below the signal and stops propagation so clicking
 // it doesn't also open the card detail modal.
-function buildCardTile(card, actionButton) {
+function buildCardTile(card, actionButton, { draggable = false } = {}) {
   const { signal } = card;
   const tile = document.createElement("div");
   tile.className = "card-tile";
@@ -606,6 +631,14 @@ function buildCardTile(card, actionButton) {
     actionsRow.className = "card-tile-actions";
     actionsRow.appendChild(actionButton);
     tile.appendChild(actionsRow);
+  }
+  if (draggable) {
+    tile.draggable = true;
+    tile.classList.add("draggable");
+    tile.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("text/pkmn-card-id", card.id);
+      e.dataTransfer.effectAllowed = "move";
+    });
   }
   tile.addEventListener("click", () => openCardDetail(card));
   return tile;
@@ -1090,20 +1123,189 @@ let currentPortfolioCards = []; // enriched with .signal, like currentCards for 
 
 // Re-renders from already-fetched data — no network call. Used both after a
 // fresh load and when the currency selector changes while this tab is open.
+// Only cards not currently placed in any binder show here — placed cards
+// live in renderBinder() instead, same underlying currentPortfolioCards array.
 function renderPortfolio() {
   els.portfolioResults.innerHTML = "";
-  for (const card of currentPortfolioCards) {
+  const unplaced = currentPortfolioCards.filter((c) => c.binder_id == null);
+  for (const card of unplaced) {
     const removeBtn = document.createElement("button");
     removeBtn.className = "remove-btn";
     removeBtn.textContent = "✕ Remove";
     removeBtn.addEventListener("click", () => removePortfolioCard(card.id, removeBtn));
-    els.portfolioResults.appendChild(buildCardTile(card, removeBtn));
+    els.portfolioResults.appendChild(buildCardTile(card, removeBtn, { draggable: true }));
+  }
+  renderBinder();
+}
+
+// ---------- Binders ----------
+
+function getActiveBinder() {
+  return userBinders.find((b) => b.id === activeBinderId) || null;
+}
+
+async function loadBinders() {
+  const { data, error } = await sb.rpc("list_binders", { p_session_token: getSessionToken() });
+  if (error) {
+    if (isSessionExpiredError(error)) return handleSessionExpired();
+    els.portfolioStatus.textContent = error.message;
+    return;
+  }
+  userBinders = data || [];
+  if (!userBinders.some((b) => b.id === activeBinderId)) {
+    activeBinderId = userBinders[0]?.id || null;
+  }
+  renderBinderTabs();
+}
+
+function renderBinderTabs() {
+  els.binderTabs.innerHTML = "";
+  for (const binder of userBinders) {
+    const tab = document.createElement("button");
+    tab.className = "binder-tab" + (binder.id === activeBinderId ? " active" : "");
+
+    const label = document.createElement("span");
+    label.textContent = binder.name;
+    tab.appendChild(label);
+
+    const size = document.createElement("span");
+    size.className = "binder-tab-size";
+    size.textContent = `${binder.cols}×${binder.cols}`;
+    tab.appendChild(size);
+
+    const del = document.createElement("span");
+    del.className = "binder-tab-delete";
+    del.textContent = "✕";
+    del.title = "Delete binder";
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteBinder(binder.id);
+    });
+    tab.appendChild(del);
+
+    tab.addEventListener("click", () => {
+      activeBinderId = binder.id;
+      localStorage.setItem(ACTIVE_BINDER_KEY, activeBinderId);
+      binderPageIndex = 0;
+      renderBinderTabs();
+      renderBinder();
+    });
+
+    els.binderTabs.appendChild(tab);
+  }
+}
+
+async function deleteBinder(binderId) {
+  const { error } = await sb.rpc("delete_binder", {
+    p_session_token: getSessionToken(),
+    p_binder_id: binderId,
+  });
+  if (error) {
+    if (isSessionExpiredError(error)) return handleSessionExpired();
+    els.portfolioStatus.textContent = error.message;
+    return;
+  }
+  if (activeBinderId === binderId) {
+    activeBinderId = null;
+    localStorage.removeItem(ACTIVE_BINDER_KEY);
+  }
+  loadPortfolio();
+}
+
+// Sends the new binder + position to the server, then reloads — same pattern
+// as add/removePortfolioCard. The server handles swapping with whatever card
+// (if any) already occupies that slot. p_binderId = null un-places a card.
+async function placeCardAtPosition(cardId, binderId, position) {
+  const { error } = await sb.rpc("set_portfolio_card_position", {
+    p_session_token: getSessionToken(),
+    p_card_id: cardId,
+    p_binder_id: binderId,
+    p_position: position,
+  });
+  if (error) {
+    if (isSessionExpiredError(error)) return handleSessionExpired();
+    els.portfolioStatus.textContent = error.message;
+    return;
+  }
+  loadPortfolio();
+}
+
+function makeBinderDropTarget(el, binderId, position) {
+  el.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    el.classList.add("drag-over");
+  });
+  el.addEventListener("dragleave", () => el.classList.remove("drag-over"));
+  el.addEventListener("drop", (e) => {
+    e.preventDefault();
+    el.classList.remove("drag-over");
+    const cardId = e.dataTransfer.getData("text/pkmn-card-id");
+    if (cardId) placeCardAtPosition(cardId, binderId, position);
+  });
+}
+
+function renderBinder() {
+  const binder = getActiveBinder();
+  els.binderEmptyState.classList.toggle("hidden", userBinders.length > 0);
+  els.binderWrap.classList.toggle("hidden", !binder);
+  if (!binder) return;
+
+  const placed = currentPortfolioCards.filter((c) => c.binder_id === binder.id);
+  const cap = binder.cols * binder.cols;
+  const highestPosition = placed.reduce((max, c) => Math.max(max, c.binder_position ?? -1), -1);
+  const totalPages = Math.max(1, Math.ceil((highestPosition + 1) / cap));
+  binderPageIndex = Math.min(Math.max(binderPageIndex, 0), totalPages - 1);
+
+  els.binderPageLabel.textContent = `Page ${binderPageIndex + 1} of ${totalPages}`;
+  els.binderPrevPage.disabled = binderPageIndex === 0;
+  els.binderNextPage.disabled = binderPageIndex >= totalPages - 1;
+
+  els.binderPage.innerHTML = "";
+  els.binderPage.style.setProperty("--binder-cols", binder.cols);
+  const startPosition = binderPageIndex * cap;
+
+  for (let i = 0; i < cap; i++) {
+    const position = startPosition + i;
+    const card = placed.find((c) => c.binder_position === position);
+    const slot = document.createElement("div");
+    slot.className = "binder-slot" + (card ? " filled" : " empty");
+    makeBinderDropTarget(slot, binder.id, position);
+
+    if (card) {
+      const img = document.createElement("img");
+      img.src = card.images?.small || "";
+      img.alt = card.name;
+      img.loading = "lazy";
+      img.draggable = true;
+      img.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("text/pkmn-card-id", card.id);
+        e.dataTransfer.effectAllowed = "move";
+      });
+      img.addEventListener("click", () => openCardDetail(card));
+      slot.appendChild(img);
+
+      if (card.signal?.label) {
+        const dot = document.createElement("span");
+        dot.className = `binder-slot-dot ${card.signal.label}`;
+        slot.appendChild(dot);
+      }
+    } else {
+      const placeholder = document.createElement("div");
+      placeholder.className = "binder-slot-empty-icon";
+      placeholder.textContent = "+";
+      slot.appendChild(placeholder);
+    }
+
+    els.binderPage.appendChild(slot);
   }
 }
 
 async function loadPortfolio() {
   els.portfolioResults.innerHTML = "";
   els.portfolioStatus.textContent = "Loading your portfolio…";
+
+  await loadBinders();
 
   const { data: rows, error } = await sb.rpc("get_portfolio", { p_session_token: getSessionToken() });
   if (error) {
@@ -1114,6 +1316,7 @@ async function loadPortfolio() {
   if (!rows || rows.length === 0) {
     currentPortfolioCards = [];
     els.portfolioStatus.textContent = "No cards saved yet — search above to add some.";
+    renderPortfolio();
     return;
   }
 
@@ -1136,13 +1339,15 @@ async function loadPortfolio() {
     }
     cards.push(
       rawCard
-        ? { ...rawCard, signal: computeSignal(rawCard) }
+        ? { ...rawCard, signal: computeSignal(rawCard), binder_id: row.binder_id, binder_position: row.binder_position }
         : {
             id: row.card_id,
             name: row.card_name,
             images: { small: row.card_image },
             set: { name: row.set_name },
             signal: { label: "HOLD", score: 0, reasons: ["Couldn't load a live price right now."], band: null },
+            binder_id: row.binder_id,
+            binder_position: row.binder_position,
           }
     );
   }
@@ -1172,11 +1377,81 @@ els.filterPills.addEventListener("click", (e) => {
   renderResults();
 });
 
-for (const modal of [els.cardModal, els.searchResultsModal]) {
+for (const modal of [els.cardModal, els.searchResultsModal, els.createBinderModal]) {
   modal.addEventListener("click", (e) => {
     if (e.target === modal) modal.classList.add("hidden");
   });
 }
+
+// Dropping a placed card back onto the pool un-places it (binder_id -> null).
+els.portfolioResults.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+});
+els.portfolioResults.addEventListener("drop", (e) => {
+  e.preventDefault();
+  const cardId = e.dataTransfer.getData("text/pkmn-card-id");
+  if (cardId) placeCardAtPosition(cardId, null, null);
+});
+
+els.binderPrevPage.addEventListener("click", () => {
+  binderPageIndex--;
+  renderBinder();
+});
+els.binderNextPage.addEventListener("click", () => {
+  binderPageIndex++;
+  renderBinder();
+});
+
+// ---------- New Binder modal ----------
+
+function openCreateBinderModal() {
+  els.newBinderName.value = "";
+  els.createBinderStatus.textContent = "";
+  newBinderSize = 3;
+  for (const btn of els.newBinderSizePills.querySelectorAll(".binder-size-btn")) {
+    btn.classList.toggle("active", Number(btn.dataset.size) === newBinderSize);
+  }
+  els.createBinderModal.classList.remove("hidden");
+  els.newBinderName.focus();
+}
+
+els.addBinderBtn.addEventListener("click", openCreateBinderModal);
+els.closeCreateBinderBtn.addEventListener("click", () => els.createBinderModal.classList.add("hidden"));
+
+els.newBinderSizePills.addEventListener("click", (e) => {
+  const btn = e.target.closest(".binder-size-btn");
+  if (!btn) return;
+  newBinderSize = Number(btn.dataset.size);
+  for (const b of els.newBinderSizePills.querySelectorAll(".binder-size-btn")) {
+    b.classList.toggle("active", b === btn);
+  }
+});
+
+els.createBinderConfirmBtn.addEventListener("click", async () => {
+  const name = els.newBinderName.value.trim();
+  if (!name) {
+    els.createBinderStatus.textContent = "Give your binder a name.";
+    return;
+  }
+  els.createBinderConfirmBtn.disabled = true;
+  const { data, error } = await sb.rpc("create_binder", {
+    p_session_token: getSessionToken(),
+    p_name: name,
+    p_cols: newBinderSize,
+  });
+  els.createBinderConfirmBtn.disabled = false;
+  if (error) {
+    if (isSessionExpiredError(error)) return handleSessionExpired();
+    els.createBinderStatus.textContent = error.message;
+    return;
+  }
+  els.createBinderModal.classList.add("hidden");
+  activeBinderId = data.id;
+  localStorage.setItem(ACTIVE_BINDER_KEY, activeBinderId);
+  binderPageIndex = 0;
+  loadPortfolio();
+});
 
 // ---------- Init ----------
 
