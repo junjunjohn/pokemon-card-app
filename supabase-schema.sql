@@ -552,6 +552,41 @@ begin
 end;
 $$;
 
+-- Renames/resizes an existing binder. Safe to shrink or grow at any time —
+-- binder_position is one flat integer per card (not a row/col pair), so
+-- changing cols only changes how that same flat order is grouped into
+-- pages/rows/cols on render; no card data needs to move.
+create or replace function public.update_binder(p_session_token uuid, p_binder_id uuid, p_name text, p_cols int)
+returns public.binders
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid;
+  v_binder public.binders;
+begin
+  v_user_id := public.current_user_id(p_session_token);
+
+  if p_cols is null or p_cols not in (2, 3, 4) then
+    raise exception 'Binder size must be 2x2, 3x3, or 4x4.';
+  end if;
+  if p_name is null or length(trim(p_name)) = 0 then
+    raise exception 'Binder needs a name.';
+  end if;
+
+  update public.binders set name = trim(p_name), cols = p_cols
+    where id = p_binder_id and user_id = v_user_id
+    returning * into v_binder;
+
+  if v_binder.id is null then
+    raise exception 'Binder not found.';
+  end if;
+
+  return v_binder;
+end;
+$$;
+
 -- Replaces the single-binder (3-arg) version from the earlier migration —
 -- must be dropped explicitly since a new arg list would otherwise just add
 -- an overload rather than replace it.
@@ -609,5 +644,6 @@ $$;
 grant execute on function public.create_binder(uuid, text, int) to anon;
 grant execute on function public.list_binders(uuid) to anon;
 grant execute on function public.delete_binder(uuid, uuid) to anon;
+grant execute on function public.update_binder(uuid, uuid, text, int) to anon;
 grant execute on function public.set_portfolio_card_position(uuid, text, uuid, int) to anon;
 grant execute on function public.set_user_permission(uuid, uuid, text, boolean) to anon;

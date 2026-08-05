@@ -418,6 +418,7 @@ footer a { color: var(--accent-2); }
 .binder-tab:hover { color: var(--text); border-color: var(--accent-2); }
 .binder-tab.active { color: var(--text); border-color: var(--accent); background: var(--panel-2); }
 .binder-tab-size { color: var(--text-dim); font-weight: 400; font-size: 12px; }
+.binder-tab-edit,
 .binder-tab-delete {
   color: var(--text-dim);
   font-size: 11px;
@@ -425,6 +426,7 @@ footer a { color: var(--accent-2); }
   padding: 3px 5px;
   border-radius: 50%;
 }
+.binder-tab-edit:hover { color: var(--accent-2); background: rgba(61, 125, 202, 0.15); }
 .binder-tab-delete:hover { color: var(--sell); background: rgba(255, 93, 93, 0.15); }
 
 .binder-size-pills { display: flex; gap: 8px; }
@@ -585,6 +587,6 @@ footer a { color: var(--accent-2); }
      desktop sizing (29px add/remove buttons) is too small to hit reliably
      on a phone. */
   .add-btn, .remove-btn { padding: 11px 16px; font-size: 14px; }
-  .binder-tab-delete { padding: 6px 8px; font-size: 13px; }
+  .binder-tab-edit, .binder-tab-delete { padding: 6px 8px; font-size: 13px; }
   #addBinderBtn { padding: 11px 16px; }
 }

@@ -67,6 +67,7 @@ const els = {
   binderPrevPage: document.getElementById("binderPrevPage"),
   binderNextPage: document.getElementById("binderNextPage"),
   createBinderModal: document.getElementById("createBinderModal"),
+  createBinderModalTitle: document.getElementById("createBinderModalTitle"),
   closeCreateBinderBtn: document.getElementById("closeCreateBinderBtn"),
   newBinderName: document.getElementById("newBinderName"),
   newBinderSizePills: document.getElementById("newBinderSizePills"),
@@ -88,7 +89,8 @@ const ACTIVE_BINDER_KEY = "pkmn_active_binder_id";
 let userBinders = []; // [{id, name, cols, sort_order, created_at}]
 let activeBinderId = localStorage.getItem(ACTIVE_BINDER_KEY) || null;
 let binderPageIndex = 0;
-let newBinderSize = 3; // selection in the "New Binder" modal, before it's created
+let newBinderSize = 3; // selection in the New/Edit Binder modal, before it's saved
+let editingBinderId = null; // null = modal is in "create" mode; set = "edit" mode for that binder
 
 // ---------- Currency conversion ----------
 // Live daily rates from the European Central Bank via frankfurter.dev (free, no key).
@@ -635,6 +637,12 @@ function buildCardTile(card, actionButton, { draggable = false } = {}) {
   if (draggable) {
     tile.draggable = true;
     tile.classList.add("draggable");
+    // <img> is natively draggable by default — left un-set, starting the
+    // drag gesture from on top of the image hijacks it into the browser's
+    // own "drag this picture" behavior instead of firing the tile's
+    // dragstart below, silently breaking placement.
+    const img = tile.querySelector("img");
+    if (img) img.draggable = false;
     tile.addEventListener("dragstart", (e) => {
       e.dataTransfer.setData("text/pkmn-card-id", card.id);
       e.dataTransfer.effectAllowed = "move";
@@ -1173,6 +1181,16 @@ function renderBinderTabs() {
     size.textContent = `${binder.cols}×${binder.cols}`;
     tab.appendChild(size);
 
+    const edit = document.createElement("span");
+    edit.className = "binder-tab-edit";
+    edit.textContent = "✎";
+    edit.title = "Resize or rename binder";
+    edit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openEditBinderModal(binder);
+    });
+    tab.appendChild(edit);
+
     const del = document.createElement("span");
     del.className = "binder-tab-delete";
     del.textContent = "✕";
@@ -1212,10 +1230,33 @@ async function deleteBinder(binderId) {
   loadPortfolio();
 }
 
-// Sends the new binder + position to the server, then reloads — same pattern
-// as add/removePortfolioCard. The server handles swapping with whatever card
-// (if any) already occupies that slot. p_binderId = null un-places a card.
+// Updates currentPortfolioCards locally (mirroring the server's swap logic)
+// and re-renders immediately, instead of waiting on a full loadPortfolio().
+// A full reload re-fetches live prices for every saved card — on a slow
+// upstream API that can take many seconds, during which the whole Saved
+// Cards / Binder view sits empty ("Loading your portfolio…"), which reads
+// as the cards having disappeared. The RPC still persists the change; on
+// error we fall back to a real reload to correct any drift.
 async function placeCardAtPosition(cardId, binderId, position) {
+  const movedCard = currentPortfolioCards.find((c) => c.id === cardId);
+  if (!movedCard) return;
+  const oldBinderId = movedCard.binder_id ?? null;
+  const oldPosition = movedCard.binder_position ?? null;
+
+  let occupant = null;
+  if (binderId != null && position != null) {
+    occupant = currentPortfolioCards.find(
+      (c) => c.id !== cardId && c.binder_id === binderId && c.binder_position === position
+    ) || null;
+  }
+  if (occupant) {
+    occupant.binder_id = oldBinderId;
+    occupant.binder_position = oldPosition;
+  }
+  movedCard.binder_id = binderId;
+  movedCard.binder_position = position;
+  renderPortfolio();
+
   const { error } = await sb.rpc("set_portfolio_card_position", {
     p_session_token: getSessionToken(),
     p_card_id: cardId,
@@ -1225,9 +1266,8 @@ async function placeCardAtPosition(cardId, binderId, position) {
   if (error) {
     if (isSessionExpiredError(error)) return handleSessionExpired();
     els.portfolioStatus.textContent = error.message;
-    return;
+    loadPortfolio(); // re-sync with server truth — the optimistic update above may not match
   }
-  loadPortfolio();
 }
 
 function makeBinderDropTarget(el, binderId, position) {
@@ -1403,15 +1443,35 @@ els.binderNextPage.addEventListener("click", () => {
   renderBinder();
 });
 
-// ---------- New Binder modal ----------
+// ---------- New / Edit Binder modal ----------
+// Same modal serves both: editingBinderId is null for "create a new binder",
+// or set to an existing binder's id to rename/resize it in place instead.
+
+function setNewBinderSizePill(size) {
+  newBinderSize = size;
+  for (const btn of els.newBinderSizePills.querySelectorAll(".binder-size-btn")) {
+    btn.classList.toggle("active", Number(btn.dataset.size) === size);
+  }
+}
 
 function openCreateBinderModal() {
+  editingBinderId = null;
+  els.createBinderModalTitle.textContent = "New Binder";
+  els.createBinderConfirmBtn.textContent = "Create";
   els.newBinderName.value = "";
   els.createBinderStatus.textContent = "";
-  newBinderSize = 3;
-  for (const btn of els.newBinderSizePills.querySelectorAll(".binder-size-btn")) {
-    btn.classList.toggle("active", Number(btn.dataset.size) === newBinderSize);
-  }
+  setNewBinderSizePill(3);
+  els.createBinderModal.classList.remove("hidden");
+  els.newBinderName.focus();
+}
+
+function openEditBinderModal(binder) {
+  editingBinderId = binder.id;
+  els.createBinderModalTitle.textContent = "Edit Binder";
+  els.createBinderConfirmBtn.textContent = "Save";
+  els.newBinderName.value = binder.name;
+  els.createBinderStatus.textContent = "";
+  setNewBinderSizePill(binder.cols);
   els.createBinderModal.classList.remove("hidden");
   els.newBinderName.focus();
 }
@@ -1422,10 +1482,7 @@ els.closeCreateBinderBtn.addEventListener("click", () => els.createBinderModal.c
 els.newBinderSizePills.addEventListener("click", (e) => {
   const btn = e.target.closest(".binder-size-btn");
   if (!btn) return;
-  newBinderSize = Number(btn.dataset.size);
-  for (const b of els.newBinderSizePills.querySelectorAll(".binder-size-btn")) {
-    b.classList.toggle("active", b === btn);
-  }
+  setNewBinderSizePill(Number(btn.dataset.size));
 });
 
 els.createBinderConfirmBtn.addEventListener("click", async () => {
@@ -1435,11 +1492,18 @@ els.createBinderConfirmBtn.addEventListener("click", async () => {
     return;
   }
   els.createBinderConfirmBtn.disabled = true;
-  const { data, error } = await sb.rpc("create_binder", {
-    p_session_token: getSessionToken(),
-    p_name: name,
-    p_cols: newBinderSize,
-  });
+  const { data, error } = editingBinderId
+    ? await sb.rpc("update_binder", {
+        p_session_token: getSessionToken(),
+        p_binder_id: editingBinderId,
+        p_name: name,
+        p_cols: newBinderSize,
+      })
+    : await sb.rpc("create_binder", {
+        p_session_token: getSessionToken(),
+        p_name: name,
+        p_cols: newBinderSize,
+      });
   els.createBinderConfirmBtn.disabled = false;
   if (error) {
     if (isSessionExpiredError(error)) return handleSessionExpired();
