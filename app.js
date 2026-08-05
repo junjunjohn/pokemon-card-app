@@ -1362,23 +1362,32 @@ async function loadPortfolio() {
 
   els.portfolioStatus.textContent = `Loading live prices for ${rows.length} saved card${rows.length === 1 ? "" : "s"}…`;
 
-  const cards = [];
-  for (const row of rows) {
-    const isIntl = row.source && row.source !== "en";
-    let rawCard = readCardCache(row.card_id);
-    if (!rawCard) {
-      try {
-        // Japanese/Chinese cards live on a different API entirely (TCGdex, not
-        // pokemontcg.io) — calling the wrong one for a card's origin would just
-        // burn the full retry/timeout budget before falling back to nothing.
-        rawCard = isIntl ? await fetchIntlCardById(row.card_id, row.source) : await fetchCardById(row.card_id);
-        if (rawCard) writeCardCache(row.card_id, rawCard);
-      } catch {
-        rawCard = null;
+  // Fetch each card's live price in parallel (capped concurrency) instead of
+  // one at a time — sequentially, N saved cards took roughly N times as long
+  // as a single fetch, and with retries/timeouts on a sometimes-slow upstream
+  // API that made the portfolio feel like it hung. cards[i] keeps results in
+  // row order regardless of which fetch finishes first.
+  const FETCH_CONCURRENCY = 6;
+  const cards = new Array(rows.length);
+  let cursor = 0;
+  async function fetchOne() {
+    while (cursor < rows.length) {
+      const i = cursor++;
+      const row = rows[i];
+      const isIntl = row.source && row.source !== "en";
+      let rawCard = readCardCache(row.card_id);
+      if (!rawCard) {
+        try {
+          // Japanese/Chinese cards live on a different API entirely (TCGdex, not
+          // pokemontcg.io) — calling the wrong one for a card's origin would just
+          // burn the full retry/timeout budget before falling back to nothing.
+          rawCard = isIntl ? await fetchIntlCardById(row.card_id, row.source) : await fetchCardById(row.card_id);
+          if (rawCard) writeCardCache(row.card_id, rawCard);
+        } catch {
+          rawCard = null;
+        }
       }
-    }
-    cards.push(
-      rawCard
+      cards[i] = rawCard
         ? { ...rawCard, signal: computeSignal(rawCard), binder_id: row.binder_id, binder_position: row.binder_position }
         : {
             id: row.card_id,
@@ -1388,9 +1397,10 @@ async function loadPortfolio() {
             signal: { label: "HOLD", score: 0, reasons: ["Couldn't load a live price right now."], band: null },
             binder_id: row.binder_id,
             binder_position: row.binder_position,
-          }
-    );
+          };
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, rows.length) }, fetchOne));
 
   currentPortfolioCards = cards;
   els.portfolioStatus.textContent = `${cards.length} card${cards.length === 1 ? "" : "s"} in your portfolio.`;
