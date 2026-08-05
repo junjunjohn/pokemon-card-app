@@ -480,12 +480,16 @@ footer a { color: var(--accent-2); }
 .binder-page {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(var(--binder-cols, 3), 1fr);
+  /* minmax floor keeps slots legible — the grid shrinks to fit the screen
+     down to that floor, then scrolls horizontally instead of squeezing
+     cards past the point they're recognizable. */
+  grid-template-columns: repeat(var(--binder-cols, 3), minmax(64px, 1fr));
   gap: 14px;
   background: #f4ecd8;
   border-radius: 10px;
   padding: 18px;
   min-width: 0;
+  overflow-x: auto;
 }
 
 .binder-slot {
@@ -537,12 +541,6 @@ footer a { color: var(--accent-2); }
 .card-tile.draggable { cursor: grab; }
 .card-tile.draggable:active { cursor: grabbing; }
 
-@media (max-width: 640px) {
-  .binder { padding: 12px; }
-  .binder-spine { flex-basis: 18px; margin-right: 10px; }
-  .binder-page { gap: 8px; padding: 10px; }
-  .binder-slot-empty-icon { font-size: 16px; }
-}
 
 .admin-table-wrap { overflow-x: auto; }
 .admin-table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -569,3 +567,24 @@ footer a { color: var(--accent-2); }
 .add-btn:hover { border-color: var(--buy); color: var(--buy); }
 .remove-btn:hover { border-color: var(--sell); color: var(--sell); }
 .add-btn:disabled { opacity: 0.6; cursor: default; }
+
+@media (max-width: 640px) {
+  .binder { padding: 12px; }
+  .binder-spine { flex-basis: 18px; margin-right: 10px; }
+  .binder-page { gap: 8px; padding: 10px; }
+  .binder-slot-empty-icon { font-size: 16px; }
+
+  /* Modals (search results, card detail, new binder) — reclaim width from
+     padding so cards render bigger, and use dvh so mobile browser
+     address-bar chrome doesn't clip the sheet like vh does. */
+  .modal { padding: 10px; }
+  .modal-content { padding: 16px; max-height: 90vh; max-height: 90dvh; }
+  .results-grid { gap: 12px; }
+
+  /* Bump tap targets to roughly the 44px touch-target guideline — the
+     desktop sizing (29px add/remove buttons) is too small to hit reliably
+     on a phone. */
+  .add-btn, .remove-btn { padding: 11px 16px; font-size: 14px; }
+  .binder-tab-delete { padding: 6px 8px; font-size: 13px; }
+  #addBinderBtn { padding: 11px 16px; }
+}
