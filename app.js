@@ -1294,12 +1294,17 @@ function renderBinder() {
   const placed = currentPortfolioCards.filter((c) => c.binder_id === binder.id);
   const cap = binder.cols * binder.cols;
   const highestPosition = placed.reduce((max, c) => Math.max(max, c.binder_position ?? -1), -1);
-  const totalPages = Math.max(1, Math.ceil((highestPosition + 1) / cap));
-  binderPageIndex = Math.min(Math.max(binderPageIndex, 0), totalPages - 1);
+  // Pages needed just to show what's already placed — but Next always stays
+  // enabled past that, so you can flip forward into a still-empty page on
+  // purpose (e.g. to keep page 1 sparse and start a new section on page 2)
+  // instead of being blocked until the current page fills up.
+  const dataPages = Math.max(1, Math.ceil((highestPosition + 1) / cap));
+  binderPageIndex = Math.max(binderPageIndex, 0);
+  const totalPages = Math.max(dataPages, binderPageIndex + 1);
 
   els.binderPageLabel.textContent = `Page ${binderPageIndex + 1} of ${totalPages}`;
   els.binderPrevPage.disabled = binderPageIndex === 0;
-  els.binderNextPage.disabled = binderPageIndex >= totalPages - 1;
+  els.binderNextPage.disabled = false;
 
   els.binderPage.innerHTML = "";
   els.binderPage.style.setProperty("--binder-cols", binder.cols);
