@@ -1461,13 +1461,63 @@ els.portfolioResults.addEventListener("drop", (e) => {
   if (cardId) placeCardAtPosition(cardId, null, null);
 });
 
+// Runs `update` (the actual page-index change + re-render) between two CSS
+// animations on els.binderPage, so the content swap happens while the page
+// is rotated edge-on and invisible — see the binder-flip-* keyframes.
+let isFlippingBinderPage = false;
+// Waits for one animationend on `page`, but never longer than `timeoutMs` —
+// prefers-reduced-motion sets animation:none (no animationend ever fires),
+// and a backgrounded tab can suspend animations entirely, so a bare listener
+// with no fallback would wedge the binder open mid-flip forever.
+function waitForFlipStep(page, className, timeoutMs) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      page.removeEventListener("animationend", onEnd);
+      clearTimeout(timer);
+      resolve();
+    };
+    const onEnd = (e) => { if (e.target === page) finish(); };
+    page.addEventListener("animationend", onEnd);
+    const timer = setTimeout(finish, timeoutMs);
+    page.classList.add(className);
+  });
+}
+async function flipBinderPage(direction, update) {
+  if (isFlippingBinderPage) return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    update();
+    return;
+  }
+  isFlippingBinderPage = true;
+  const page = els.binderPage;
+  // If update() (a full renderBinder rebuild) ever throws, the finally
+  // below is what stops the binder from getting stuck rotated away
+  // edge-on with the nav buttons permanently unresponsive.
+  try {
+    await waitForFlipStep(page, `flip-out-${direction}`, 300);
+    page.classList.remove(`flip-out-${direction}`);
+    update();
+    await waitForFlipStep(page, `flip-in-${direction}`, 300);
+  } finally {
+    page.classList.remove(`flip-out-${direction}`, `flip-in-${direction}`);
+    isFlippingBinderPage = false;
+  }
+}
+
 els.binderPrevPage.addEventListener("click", () => {
-  binderPageIndex--;
-  renderBinder();
+  flipBinderPage("prev", () => {
+    binderPageIndex--;
+    renderBinder();
+  });
 });
 els.binderNextPage.addEventListener("click", () => {
-  binderPageIndex++;
-  renderBinder();
+  flipBinderPage("next", () => {
+    binderPageIndex++;
+    renderBinder();
+  });
 });
 
 // ---------- New / Edit Binder modal ----------

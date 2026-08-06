@@ -464,6 +464,7 @@ footer a { color: var(--accent-2); }
   padding: 18px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
   margin-bottom: 8px;
+  perspective: 1600px;
 }
 
 .binder-spine {
@@ -492,6 +493,41 @@ footer a { color: var(--accent-2); }
   padding: 18px;
   min-width: 0;
   overflow-x: auto;
+  transform-origin: left center;
+  backface-visibility: hidden;
+}
+
+/* Page-turn effect for Prev/Next: the page rotates edge-on around the
+   spine (like real paper catching shadow as it lifts) and swaps its
+   content once it's rotated far enough to be invisible, then rotates
+   back down. Next and Prev turn in mirrored directions so the motion
+   reads as "forward"/"backward" rather than identical in both cases. */
+@keyframes binder-flip-out-next {
+  from { transform: rotateY(0deg); filter: brightness(1); }
+  to   { transform: rotateY(-92deg); filter: brightness(0.55); }
+}
+@keyframes binder-flip-in-next {
+  from { transform: rotateY(92deg); filter: brightness(0.55); }
+  to   { transform: rotateY(0deg); filter: brightness(1); }
+}
+@keyframes binder-flip-out-prev {
+  from { transform: rotateY(0deg); filter: brightness(1); }
+  to   { transform: rotateY(92deg); filter: brightness(0.55); }
+}
+@keyframes binder-flip-in-prev {
+  from { transform: rotateY(-92deg); filter: brightness(0.55); }
+  to   { transform: rotateY(0deg); filter: brightness(1); }
+}
+.binder-page.flip-out-next { animation: binder-flip-out-next 200ms ease-in forwards; }
+.binder-page.flip-in-next  { animation: binder-flip-in-next 200ms ease-out forwards; }
+.binder-page.flip-out-prev { animation: binder-flip-out-prev 200ms ease-in forwards; }
+.binder-page.flip-in-prev  { animation: binder-flip-in-prev 200ms ease-out forwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .binder-page.flip-out-next, .binder-page.flip-in-next,
+  .binder-page.flip-out-prev, .binder-page.flip-in-prev {
+    animation: none;
+  }
 }
 
 .binder-slot {
