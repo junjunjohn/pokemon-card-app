@@ -125,12 +125,19 @@
       </div>
 
       <div id="binderWrap" class="hidden">
-        <section class="binder-page-nav">
+        <div id="binderCover" class="binder-cover" role="button" tabindex="0" aria-label="Open binder">
+          <div class="binder-cover-spine"></div>
+          <div class="binder-cover-face">
+            <span id="binderCoverTitle" class="binder-cover-title"></span>
+            <span class="binder-cover-hint">Tap to open</span>
+          </div>
+        </div>
+        <section id="binderPageNav" class="binder-page-nav hidden">
           <button id="binderPrevPage" class="ghost-btn" aria-label="Previous page">‹</button>
           <span id="binderPageLabel">Page 1 of 1</span>
           <button id="binderNextPage" class="ghost-btn" aria-label="Next page">›</button>
         </section>
-        <div class="binder">
+        <div id="binder" class="binder hidden">
           <div class="binder-spine"></div>
           <section id="binderPage" class="binder-page"></section>
         </div>

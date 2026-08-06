@@ -62,6 +62,10 @@ const els = {
   addBinderBtn: document.getElementById("addBinderBtn"),
   binderEmptyState: document.getElementById("binderEmptyState"),
   binderWrap: document.getElementById("binderWrap"),
+  binderCover: document.getElementById("binderCover"),
+  binderCoverTitle: document.getElementById("binderCoverTitle"),
+  binderPageNav: document.getElementById("binderPageNav"),
+  binder: document.getElementById("binder"),
   binderPage: document.getElementById("binderPage"),
   binderPageLabel: document.getElementById("binderPageLabel"),
   binderPrevPage: document.getElementById("binderPrevPage"),
@@ -89,6 +93,10 @@ const ACTIVE_BINDER_KEY = "pkmn_active_binder_id";
 let userBinders = []; // [{id, name, cols, sort_order, created_at}]
 let activeBinderId = localStorage.getItem(ACTIVE_BINDER_KEY) || null;
 let binderPageIndex = 0;
+// Whether the active binder is showing its open pages or just its closed
+// cover. Starts closed on every fresh load and every binder switch — see
+// the "tap to open" cover in renderBinder() below.
+let binderOpen = false;
 let newBinderSize = 3; // selection in the New/Edit Binder modal, before it's saved
 let editingBinderId = null; // null = modal is in "create" mode; set = "edit" mode for that binder
 
@@ -1208,6 +1216,7 @@ function renderBinderTabs() {
     tab.appendChild(del);
 
     tab.addEventListener("click", () => {
+      if (binder.id !== activeBinderId) binderOpen = false; // switching binders — show its cover, not mid-open
       activeBinderId = binder.id;
       localStorage.setItem(ACTIVE_BINDER_KEY, activeBinderId);
       binderPageIndex = 0;
@@ -1296,6 +1305,12 @@ function renderBinder() {
   els.binderEmptyState.classList.toggle("hidden", userBinders.length > 0);
   els.binderWrap.classList.toggle("hidden", !binder);
   if (!binder) return;
+
+  els.binderCoverTitle.textContent = binder.name;
+  els.binderCover.classList.toggle("hidden", binderOpen);
+  els.binderPageNav.classList.toggle("hidden", !binderOpen);
+  els.binder.classList.toggle("hidden", !binderOpen);
+  if (!binderOpen) return; // still closed — nothing to build until it's tapped open
 
   const placed = currentPortfolioCards.filter((c) => c.binder_id === binder.id);
   const cap = binder.cols * binder.cols;
@@ -1485,6 +1500,37 @@ function waitForFlipStep(page, className, timeoutMs) {
     page.classList.add(className);
   });
 }
+// Swings the closed cover away, swaps in the (now built) open binder, then
+// swings that into place — the reveal counterpart to flipBinderPage below,
+// reusing the same wait-with-timeout helper for the same reasons.
+let isOpeningBinder = false;
+async function openBinder() {
+  if (isOpeningBinder || binderOpen) return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    binderOpen = true;
+    renderBinder();
+    return;
+  }
+  isOpeningBinder = true;
+  try {
+    await waitForFlipStep(els.binderCover, "opening", 350);
+    binderOpen = true;
+    renderBinder();
+    await waitForFlipStep(els.binder, "revealing", 350);
+  } finally {
+    els.binderCover.classList.remove("opening");
+    els.binder.classList.remove("revealing");
+    isOpeningBinder = false;
+  }
+}
+els.binderCover.addEventListener("click", openBinder);
+els.binderCover.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    openBinder();
+  }
+});
+
 async function flipBinderPage(direction, update) {
   if (isFlippingBinderPage) return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
@@ -1588,6 +1634,7 @@ els.createBinderConfirmBtn.addEventListener("click", async () => {
     return;
   }
   els.createBinderModal.classList.add("hidden");
+  if (!editingBinderId) binderOpen = false; // a freshly created binder starts closed too; resizing/renaming the open one shouldn't shut it
   activeBinderId = data.id;
   localStorage.setItem(ACTIVE_BINDER_KEY, activeBinderId);
   binderPageIndex = 0;
