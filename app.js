@@ -1324,9 +1324,11 @@ function renderBinder() {
   // rule in style.css — size themselves for this binder's column count.
   els.binderWrap.style.setProperty("--binder-cols", binder.cols);
   els.binderCoverTitle.textContent = binder.name;
-  els.binderCoverFace.style.backgroundImage = isSafeImageUrl(binder.cover_image_url)
+  const hasCoverPhoto = isSafeImageUrl(binder.cover_image_url);
+  els.binderCoverFace.style.backgroundImage = hasCoverPhoto
     ? `linear-gradient(rgba(20, 10, 5, 0.35), rgba(20, 10, 5, 0.65)), url("${encodeURI(binder.cover_image_url)}")`
     : "";
+  els.binderCoverFace.classList.toggle("has-photo", hasCoverPhoto);
   els.binderCover.classList.toggle("hidden", binderOpen);
   els.binderPageNav.classList.toggle("hidden", !binderOpen);
   els.binder.classList.toggle("hidden", !binderOpen);

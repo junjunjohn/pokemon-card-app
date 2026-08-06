@@ -521,19 +521,22 @@ footer a { color: var(--accent-2); }
 }
 .binder-cover:hover { transform: scale(0.58); }
 .binder-cover-face {
+  position: relative;
+  overflow: hidden;
   flex: 1;
   border-radius: 10px;
-  /* Plain default look. When a binder has a cover image, JS overrides
-     `background` inline with the same darkening gradient layered over the
-     user's photo, so title text stays readable regardless of what the
-     photo looks like — see renderBinder() in app.js. */
-  background:
-    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.06), transparent 60%),
-    linear-gradient(160deg, #6b4530, #45291a 60%, #331d11);
+  /* Pokémon-red-to-navy default, not the brown leather of a generic photo
+     binder. When a binder has a cover image, JS overrides background-image
+     inline with the same darkening gradient layered over the user's photo
+     (and hides the emblem below) — see renderBinder() in app.js. */
+  background-color: #7a1f1f;
+  background-image:
+    radial-gradient(circle at 25% 15%, rgba(255, 255, 255, 0.12), transparent 55%),
+    linear-gradient(160deg, #e3350d 0%, #b5211a 35%, #2a2f6b 75%, #171a3d 100%);
   background-size: cover;
   background-position: center;
-  border: 1px solid rgba(0, 0, 0, 0.3);
-  box-shadow: inset 0 0 0 6px rgba(216, 196, 138, 0.15), inset 0 0 30px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 0 0 6px rgba(255, 203, 5, 0.18), inset 0 0 30px rgba(0, 0, 0, 0.45);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -545,15 +548,43 @@ footer a { color: var(--accent-2); }
 }
 .binder-cover:hover .binder-cover-face { filter: brightness(1.12); }
 .binder-cover-title {
+  position: relative;
+  z-index: 1;
   font-size: 22px;
   font-weight: 700;
   letter-spacing: 0.03em;
-  color: #d8c48a;
-  text-shadow: 0 2px 2px rgba(0, 0, 0, 0.5);
+  color: #ffcb05;
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.7);
 }
 .binder-cover-hint {
+  position: relative;
+  z-index: 1;
   font-size: 13px;
-  color: rgba(216, 196, 138, 0.65);
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+/* A CSS-drawn Pokéball watermark, peeking from the corner — the classic
+   red/white split, black band, and center button, each a stacked gradient
+   layer (first-listed paints on top). Hidden once a real cover photo is
+   set (renderBinder() toggles .has-photo), so it never fights a real image. */
+.binder-cover-emblem {
+  position: absolute;
+  right: -34px;
+  bottom: -46px;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  border: 5px solid #1a1a1a;
+  background:
+    radial-gradient(circle at 50% 50%, #fff 0 15px, #1a1a1a 15px 19px, transparent 19px),
+    linear-gradient(#1a1a1a, #1a1a1a) center / 100% 11px no-repeat,
+    linear-gradient(to bottom, #ee1515 0%, #ee1515 50%, #f5f5f5 50%, #f5f5f5 100%);
+  opacity: 0.3;
+  z-index: 0;
+  pointer-events: none;
+}
+.binder-cover-face.has-photo .binder-cover-emblem {
+  display: none;
 }
 
 @keyframes binder-cover-grow {
