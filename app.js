@@ -58,6 +58,7 @@ const els = {
   adminTab: document.getElementById("adminTab"),
   adminStatus: document.getElementById("adminStatus"),
   adminUsersTbody: document.getElementById("adminUsersTbody"),
+  activeBinderHeading: document.getElementById("activeBinderHeading"),
   binderTabs: document.getElementById("binderTabs"),
   addBinderBtn: document.getElementById("addBinderBtn"),
   binderEmptyState: document.getElementById("binderEmptyState"),
@@ -75,7 +76,10 @@ const els = {
   createBinderModalTitle: document.getElementById("createBinderModalTitle"),
   closeCreateBinderBtn: document.getElementById("closeCreateBinderBtn"),
   newBinderName: document.getElementById("newBinderName"),
+  newBinderSizePicker: document.getElementById("newBinderSizePicker"),
   newBinderSizePills: document.getElementById("newBinderSizePills"),
+  newBinderSizeLocked: document.getElementById("newBinderSizeLocked"),
+  newBinderSizeLockedValue: document.getElementById("newBinderSizeLockedValue"),
   newBinderCoverImageUrl: document.getElementById("newBinderCoverImageUrl"),
   createBinderStatus: document.getElementById("createBinderStatus"),
   createBinderConfirmBtn: document.getElementById("createBinderConfirmBtn"),
@@ -1228,6 +1232,9 @@ function renderBinderTabs() {
 
     els.binderTabs.appendChild(tab);
   }
+  // One name on top — whichever binder is actually selected — instead of
+  // a generic "Binders" label once there's something to point at.
+  els.activeBinderHeading.textContent = getActiveBinder()?.name || "Binders";
 }
 
 async function deleteBinder(binderId) {
@@ -1592,7 +1599,11 @@ els.binderNextPage.addEventListener("click", () => {
 
 // ---------- New / Edit Binder modal ----------
 // Same modal serves both: editingBinderId is null for "create a new binder",
-// or set to an existing binder's id to rename/resize it in place instead.
+// or set to an existing binder's id to rename/re-cover it in place instead.
+// Size is fixed at creation and never shown as editable — binder_position is
+// one flat integer per card, so changing cols reflows which page/row/col
+// every already-placed card lands on, which would look like cards got
+// shuffled around for no reason.
 
 function setNewBinderSizePill(size) {
   newBinderSize = size;
@@ -1608,6 +1619,8 @@ function openCreateBinderModal() {
   els.newBinderName.value = "";
   els.newBinderCoverImageUrl.value = "";
   els.createBinderStatus.textContent = "";
+  els.newBinderSizePicker.classList.remove("hidden");
+  els.newBinderSizeLocked.classList.add("hidden");
   setNewBinderSizePill(3);
   els.createBinderModal.classList.remove("hidden");
   els.newBinderName.focus();
@@ -1620,7 +1633,10 @@ function openEditBinderModal(binder) {
   els.newBinderName.value = binder.name;
   els.newBinderCoverImageUrl.value = binder.cover_image_url || "";
   els.createBinderStatus.textContent = "";
-  setNewBinderSizePill(binder.cols);
+  els.newBinderSizePicker.classList.add("hidden");
+  els.newBinderSizeLocked.classList.remove("hidden");
+  els.newBinderSizeLockedValue.textContent = `${binder.cols}×${binder.cols}`;
+  setNewBinderSizePill(binder.cols); // no UI for this while editing, but newBinderSize still needs to hold the unchanged value for the save call
   els.createBinderModal.classList.remove("hidden");
   els.newBinderName.focus();
 }

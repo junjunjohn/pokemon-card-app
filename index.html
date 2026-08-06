@@ -114,7 +114,7 @@
         <button id="cardSearchBtn">🔍 Search</button>
       </section>
 
-      <h3 class="portfolio-heading">Binders</h3>
+      <h3 id="activeBinderHeading" class="portfolio-heading">Binders</h3>
       <section class="binder-controls">
         <div id="binderTabs" class="binder-tabs"></div>
         <button id="addBinderBtn" class="ghost-btn">+ Add Binder</button>
@@ -197,12 +197,17 @@
       <label class="field">Name
         <input id="newBinderName" type="text" placeholder="e.g. Vintage Binder" maxlength="40" />
       </label>
-      <p class="field-hint">Size</p>
-      <div class="binder-size-pills" id="newBinderSizePills">
-        <button type="button" class="binder-size-btn" data-size="2">2×2</button>
-        <button type="button" class="binder-size-btn active" data-size="3">3×3</button>
-        <button type="button" class="binder-size-btn" data-size="4">4×4</button>
+      <div id="newBinderSizePicker">
+        <p class="field-hint">Size</p>
+        <div class="binder-size-pills" id="newBinderSizePills">
+          <button type="button" class="binder-size-btn" data-size="2">2×2</button>
+          <button type="button" class="binder-size-btn active" data-size="3">3×3</button>
+          <button type="button" class="binder-size-btn" data-size="4">4×4</button>
+        </div>
       </div>
+      <p id="newBinderSizeLocked" class="field-hint hidden">
+        Size: <strong id="newBinderSizeLockedValue"></strong> — can't be changed after a binder is created, so cards already placed stay in order.
+      </p>
       <label class="field">Cover image URL (optional)
         <input id="newBinderCoverImageUrl" type="url" placeholder="https://example.com/cover.jpg" />
       </label>

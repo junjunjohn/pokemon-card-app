@@ -512,7 +512,12 @@ footer a { color: var(--accent-2); }
   padding: 18px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
   margin-bottom: 8px;
-  min-height: 260px;
+  /* Matches the open binder's own height so opening doesn't jump: each
+     pocket is ~210px tall (the 150px slot width from the max-width calc
+     above, times the 5:7 card aspect ratio), stacked cols-many rows deep
+     plus gaps and this box's own padding. Taller than it is wide, like an
+     actual binder — not the flat min-height:260px strip this used to be. */
+  min-height: calc(36px + var(--binder-cols, 3) * 210px + (var(--binder-cols, 3) - 1) * 14px);
   cursor: pointer;
   transform: scale(0.55);
   transform-origin: center center;
