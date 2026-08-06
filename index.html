@@ -127,7 +127,7 @@
       <div id="binderWrap" class="hidden">
         <div id="binderCover" class="binder-cover" role="button" tabindex="0" aria-label="Open binder">
           <div class="binder-cover-spine"></div>
-          <div class="binder-cover-face">
+          <div id="binderCoverFace" class="binder-cover-face">
             <span id="binderCoverTitle" class="binder-cover-title"></span>
             <span class="binder-cover-hint">Tap to open</span>
           </div>
@@ -202,6 +202,9 @@
         <button type="button" class="binder-size-btn active" data-size="3">3×3</button>
         <button type="button" class="binder-size-btn" data-size="4">4×4</button>
       </div>
+      <label class="field">Cover image URL (optional)
+        <input id="newBinderCoverImageUrl" type="url" placeholder="https://example.com/cover.jpg" />
+      </label>
       <p id="createBinderStatus" class="status"></p>
       <div class="modal-actions">
         <button id="createBinderConfirmBtn" class="primary-btn">Create</button>

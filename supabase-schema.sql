@@ -480,6 +480,10 @@ alter table public.binders enable row level security;
 -- No policies added on purpose — same locked-down pattern as portfolio_cards,
 -- only reachable through the SECURITY DEFINER functions below.
 
+-- Optional cover photo for the closed-binder UI. http(s)-only is enforced
+-- client-side (see isSafeImageUrl in app.js) before this is ever written.
+alter table public.binders add column if not exists cover_image_url text;
+
 alter table public.portfolio_cards add column if not exists binder_id uuid references public.binders(id) on delete set null;
 
 -- Superseded by the (binder_id, binder_position) index below — binder_position
@@ -490,7 +494,15 @@ create unique index if not exists portfolio_cards_binder_position_uniq
   on public.portfolio_cards (binder_id, binder_position)
   where binder_id is not null and binder_position is not null;
 
-create or replace function public.create_binder(p_session_token uuid, p_name text, p_cols int)
+-- CREATE OR REPLACE only replaces a function whose parameter list matches
+-- exactly — a different list (even just appending an optional param) is
+-- treated as a new overload, leaving the old 3-arg version callable
+-- alongside it. Drop it first so there's only ever one create_binder.
+drop function if exists public.create_binder(uuid, text, int);
+
+create or replace function public.create_binder(
+  p_session_token uuid, p_name text, p_cols int, p_cover_image_url text default null
+)
 returns public.binders
 language plpgsql
 security definer
@@ -509,10 +521,11 @@ begin
     raise exception 'Binder needs a name.';
   end if;
 
-  insert into public.binders (user_id, name, cols, sort_order)
+  insert into public.binders (user_id, name, cols, sort_order, cover_image_url)
   values (
     v_user_id, trim(p_name), p_cols,
-    (select coalesce(max(sort_order), -1) + 1 from public.binders where user_id = v_user_id)
+    (select coalesce(max(sort_order), -1) + 1 from public.binders where user_id = v_user_id),
+    p_cover_image_url
   )
   returning * into v_binder;
 
@@ -556,7 +569,12 @@ $$;
 -- binder_position is one flat integer per card (not a row/col pair), so
 -- changing cols only changes how that same flat order is grouped into
 -- pages/rows/cols on render; no card data needs to move.
-create or replace function public.update_binder(p_session_token uuid, p_binder_id uuid, p_name text, p_cols int)
+-- Same overload-vs-replace reasoning as create_binder above.
+drop function if exists public.update_binder(uuid, uuid, text, int);
+
+create or replace function public.update_binder(
+  p_session_token uuid, p_binder_id uuid, p_name text, p_cols int, p_cover_image_url text default null
+)
 returns public.binders
 language plpgsql
 security definer
@@ -575,7 +593,7 @@ begin
     raise exception 'Binder needs a name.';
   end if;
 
-  update public.binders set name = trim(p_name), cols = p_cols
+  update public.binders set name = trim(p_name), cols = p_cols, cover_image_url = p_cover_image_url
     where id = p_binder_id and user_id = v_user_id
     returning * into v_binder;
 
@@ -652,9 +670,9 @@ begin
 end;
 $$;
 
-grant execute on function public.create_binder(uuid, text, int) to anon;
+grant execute on function public.create_binder(uuid, text, int, text) to anon;
 grant execute on function public.list_binders(uuid) to anon;
 grant execute on function public.delete_binder(uuid, uuid) to anon;
-grant execute on function public.update_binder(uuid, uuid, text, int) to anon;
+grant execute on function public.update_binder(uuid, uuid, text, int, text) to anon;
 grant execute on function public.set_portfolio_card_position(uuid, text, uuid, int) to anon;
 grant execute on function public.set_user_permission(uuid, uuid, text, boolean) to anon;

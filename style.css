@@ -465,6 +465,17 @@ footer a { color: var(--accent-2); }
   perspective: 1600px;
 }
 
+/* Caps both the open binder and its closed cover at a fixed per-pocket
+   width (150px) instead of stretching slots to fill the whole portfolio
+   column — a real binder page doesn't get wider just because the browser
+   window did. 116px covers the fixed chrome: spine (28 + 16 margin) plus
+   this box's own padding (18 * 2) plus .binder-page's padding (18 * 2). */
+.binder, .binder-cover {
+  max-width: calc(116px + var(--binder-cols, 3) * 150px + (var(--binder-cols, 3) - 1) * 14px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .binder {
   display: flex;
   background: linear-gradient(135deg, #5b3a29, #3c2418);
@@ -490,7 +501,10 @@ footer a { color: var(--accent-2); }
 }
 
 /* The closed binder shown on arrival — same footprint and materials as
-   .binder so opening it doesn't visually jump, just swings away. */
+   .binder so opening it doesn't visually jump, just grows then swings
+   away. Sitting at scale(0.55) makes it read as a smaller object on the
+   shelf; the layout box underneath stays full-size (transform doesn't
+   affect layout), so growing to scale(1) needs no reflow. */
 .binder-cover {
   display: flex;
   background: linear-gradient(135deg, #5b3a29, #3c2418);
@@ -500,15 +514,24 @@ footer a { color: var(--accent-2); }
   margin-bottom: 8px;
   min-height: 260px;
   cursor: pointer;
-  transform-origin: left center;
+  transform: scale(0.55);
+  transform-origin: center center;
   backface-visibility: hidden;
+  transition: transform 150ms ease;
 }
+.binder-cover:hover { transform: scale(0.58); }
 .binder-cover-face {
   flex: 1;
   border-radius: 10px;
+  /* Plain default look. When a binder has a cover image, JS overrides
+     `background` inline with the same darkening gradient layered over the
+     user's photo, so title text stays readable regardless of what the
+     photo looks like — see renderBinder() in app.js. */
   background:
     radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.06), transparent 60%),
     linear-gradient(160deg, #6b4530, #45291a 60%, #331d11);
+  background-size: cover;
+  background-position: center;
   border: 1px solid rgba(0, 0, 0, 0.3);
   box-shadow: inset 0 0 0 6px rgba(216, 196, 138, 0.15), inset 0 0 30px rgba(0, 0, 0, 0.4);
   display: flex;
@@ -533,19 +556,25 @@ footer a { color: var(--accent-2); }
   color: rgba(216, 196, 138, 0.65);
 }
 
+@keyframes binder-cover-grow {
+  from { transform: scale(0.55); }
+  to   { transform: scale(1); }
+}
 @keyframes binder-cover-open {
-  from { transform: rotateY(0deg); filter: brightness(1); }
-  to   { transform: rotateY(-100deg); filter: brightness(0.4); }
+  from { transform: scale(1) rotateY(0deg); filter: brightness(1); }
+  to   { transform: scale(1) rotateY(-100deg); filter: brightness(0.4); }
 }
 @keyframes binder-reveal {
   from { transform: rotateY(100deg); filter: brightness(0.4); }
   to   { transform: rotateY(0deg); filter: brightness(1); }
 }
-.binder-cover.opening { animation: binder-cover-open 300ms ease-in forwards; }
-.binder.revealing     { animation: binder-reveal 300ms ease-out forwards; }
+.binder-cover.growing { animation: binder-cover-grow 260ms ease-out forwards; }
+/* Hinged at the spine for the swing, unlike the centered grow above. */
+.binder-cover.opening { transform-origin: left center; animation: binder-cover-open 300ms ease-in forwards; }
+.binder.revealing      { animation: binder-reveal 300ms ease-out forwards; }
 
 @media (prefers-reduced-motion: reduce) {
-  .binder-cover.opening, .binder.revealing {
+  .binder-cover.growing, .binder-cover.opening, .binder.revealing {
     animation: none;
   }
 }

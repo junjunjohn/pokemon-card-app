@@ -63,6 +63,7 @@ const els = {
   binderEmptyState: document.getElementById("binderEmptyState"),
   binderWrap: document.getElementById("binderWrap"),
   binderCover: document.getElementById("binderCover"),
+  binderCoverFace: document.getElementById("binderCoverFace"),
   binderCoverTitle: document.getElementById("binderCoverTitle"),
   binderPageNav: document.getElementById("binderPageNav"),
   binder: document.getElementById("binder"),
@@ -75,6 +76,7 @@ const els = {
   closeCreateBinderBtn: document.getElementById("closeCreateBinderBtn"),
   newBinderName: document.getElementById("newBinderName"),
   newBinderSizePills: document.getElementById("newBinderSizePills"),
+  newBinderCoverImageUrl: document.getElementById("newBinderCoverImageUrl"),
   createBinderStatus: document.getElementById("createBinderStatus"),
   createBinderConfirmBtn: document.getElementById("createBinderConfirmBtn"),
 };
@@ -1300,13 +1302,31 @@ function makeBinderDropTarget(el, binderId, position) {
   });
 }
 
+// http(s)-only so a stored cover_image_url can't smuggle in a javascript:
+// or data: URL — this both gates what render puts in a background-image
+// and what the New/Edit Binder modal accepts on save.
+function isSafeImageUrl(url) {
+  try {
+    return ["http:", "https:"].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
 function renderBinder() {
   const binder = getActiveBinder();
   els.binderEmptyState.classList.toggle("hidden", userBinders.length > 0);
   els.binderWrap.classList.toggle("hidden", !binder);
   if (!binder) return;
 
+  // Set on the shared ancestor (not just .binderPage) so both the closed
+  // cover and the open binder's max-width — see the .binder, .binder-cover
+  // rule in style.css — size themselves for this binder's column count.
+  els.binderWrap.style.setProperty("--binder-cols", binder.cols);
   els.binderCoverTitle.textContent = binder.name;
+  els.binderCoverFace.style.backgroundImage = isSafeImageUrl(binder.cover_image_url)
+    ? `linear-gradient(rgba(20, 10, 5, 0.35), rgba(20, 10, 5, 0.65)), url("${encodeURI(binder.cover_image_url)}")`
+    : "";
   els.binderCover.classList.toggle("hidden", binderOpen);
   els.binderPageNav.classList.toggle("hidden", !binderOpen);
   els.binder.classList.toggle("hidden", !binderOpen);
@@ -1327,8 +1347,7 @@ function renderBinder() {
   els.binderPrevPage.disabled = binderPageIndex === 0;
   els.binderNextPage.disabled = false;
 
-  els.binderPage.innerHTML = "";
-  els.binderPage.style.setProperty("--binder-cols", binder.cols);
+  els.binderPage.innerHTML = ""; // --binder-cols is set on els.binderWrap above; .binder-page inherits it
   const startPosition = binderPageIndex * cap;
 
   for (let i = 0; i < cap; i++) {
@@ -1500,9 +1519,10 @@ function waitForFlipStep(page, className, timeoutMs) {
     page.classList.add(className);
   });
 }
-// Swings the closed cover away, swaps in the (now built) open binder, then
-// swings that into place — the reveal counterpart to flipBinderPage below,
-// reusing the same wait-with-timeout helper for the same reasons.
+// Grows the closed cover from its resting scale(0.55) up to full size, then
+// swings it away and swaps in the (now built) open binder, then swings that
+// into place — the reveal counterpart to flipBinderPage below, reusing the
+// same wait-with-timeout helper for the same reasons.
 let isOpeningBinder = false;
 async function openBinder() {
   if (isOpeningBinder || binderOpen) return;
@@ -1513,12 +1533,14 @@ async function openBinder() {
   }
   isOpeningBinder = true;
   try {
+    await waitForFlipStep(els.binderCover, "growing", 300);
+    els.binderCover.classList.remove("growing");
     await waitForFlipStep(els.binderCover, "opening", 350);
     binderOpen = true;
     renderBinder();
     await waitForFlipStep(els.binder, "revealing", 350);
   } finally {
-    els.binderCover.classList.remove("opening");
+    els.binderCover.classList.remove("growing", "opening");
     els.binder.classList.remove("revealing");
     isOpeningBinder = false;
   }
@@ -1582,6 +1604,7 @@ function openCreateBinderModal() {
   els.createBinderModalTitle.textContent = "New Binder";
   els.createBinderConfirmBtn.textContent = "Create";
   els.newBinderName.value = "";
+  els.newBinderCoverImageUrl.value = "";
   els.createBinderStatus.textContent = "";
   setNewBinderSizePill(3);
   els.createBinderModal.classList.remove("hidden");
@@ -1593,6 +1616,7 @@ function openEditBinderModal(binder) {
   els.createBinderModalTitle.textContent = "Edit Binder";
   els.createBinderConfirmBtn.textContent = "Save";
   els.newBinderName.value = binder.name;
+  els.newBinderCoverImageUrl.value = binder.cover_image_url || "";
   els.createBinderStatus.textContent = "";
   setNewBinderSizePill(binder.cols);
   els.createBinderModal.classList.remove("hidden");
@@ -1614,6 +1638,11 @@ els.createBinderConfirmBtn.addEventListener("click", async () => {
     els.createBinderStatus.textContent = "Give your binder a name.";
     return;
   }
+  const coverImageUrl = els.newBinderCoverImageUrl.value.trim();
+  if (coverImageUrl && !isSafeImageUrl(coverImageUrl)) {
+    els.createBinderStatus.textContent = "Cover image URL must start with http:// or https://";
+    return;
+  }
   els.createBinderConfirmBtn.disabled = true;
   const { data, error } = editingBinderId
     ? await sb.rpc("update_binder", {
@@ -1621,11 +1650,13 @@ els.createBinderConfirmBtn.addEventListener("click", async () => {
         p_binder_id: editingBinderId,
         p_name: name,
         p_cols: newBinderSize,
+        p_cover_image_url: coverImageUrl || null,
       })
     : await sb.rpc("create_binder", {
         p_session_token: getSessionToken(),
         p_name: name,
         p_cols: newBinderSize,
+        p_cover_image_url: coverImageUrl || null,
       });
   els.createBinderConfirmBtn.disabled = false;
   if (error) {
