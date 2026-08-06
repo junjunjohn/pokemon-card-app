@@ -1136,6 +1136,12 @@ let currentPortfolioCards = []; // enriched with .signal, like currentCards for 
 function renderPortfolio() {
   els.portfolioResults.innerHTML = "";
   const unplaced = currentPortfolioCards.filter((c) => c.binder_id == null);
+  // With no unplaced cards this section has no children — as a CSS grid it
+  // would collapse to 0 height, leaving nothing to drag a binder card onto.
+  // Keep a visible, sized placeholder so it stays a usable drop target.
+  if (unplaced.length === 0) {
+    els.portfolioResults.innerHTML = `<div class="empty-state">Drag a card here to take it out of your binder.</div>`;
+  }
   for (const card of unplaced) {
     const removeBtn = document.createElement("button");
     removeBtn.className = "remove-btn";
@@ -1322,13 +1328,19 @@ function renderBinder() {
       img.src = card.images?.small || "";
       img.alt = card.name;
       img.loading = "lazy";
-      img.draggable = true;
-      img.addEventListener("dragstart", (e) => {
+      // Drag source lives on the slot, not the <img> — same reasoning as
+      // buildCardTile above: a draggable <img> gets hijacked into the
+      // browser's own "drag this picture" gesture instead of firing this
+      // dragstart, so the drop silently no-ops and the card snaps back.
+      img.draggable = false;
+      img.addEventListener("click", () => openCardDetail(card));
+      slot.appendChild(img);
+
+      slot.draggable = true;
+      slot.addEventListener("dragstart", (e) => {
         e.dataTransfer.setData("text/pkmn-card-id", card.id);
         e.dataTransfer.effectAllowed = "move";
       });
-      img.addEventListener("click", () => openCardDetail(card));
-      slot.appendChild(img);
 
       if (card.signal?.label) {
         const dot = document.createElement("span");
