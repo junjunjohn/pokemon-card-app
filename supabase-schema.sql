@@ -629,13 +629,24 @@ begin
         and card_id <> p_card_id;
   end if;
 
+  -- Swapping straight into the occupant's old slot would momentarily leave
+  -- both cards on (p_binder_id, p_position) — portfolio_cards_binder_position_uniq
+  -- checks that immediately (it's a plain index, not deferrable), so this order
+  -- would raise a unique_violation instead of ever landing the drop. Bounce the
+  -- occupant through "unplaced" first, which the partial index (where binder_id
+  -- is not null) ignores, then place the moved card, then re-home the occupant.
   if v_occupant_id is not null then
-    update public.portfolio_cards set binder_id = v_old_binder_id, binder_position = v_old_position
+    update public.portfolio_cards set binder_id = null, binder_position = null
       where user_id = v_user_id and card_id = v_occupant_id;
   end if;
 
   update public.portfolio_cards set binder_id = p_binder_id, binder_position = p_position
     where user_id = v_user_id and card_id = p_card_id;
+
+  if v_occupant_id is not null then
+    update public.portfolio_cards set binder_id = v_old_binder_id, binder_position = v_old_position
+      where user_id = v_user_id and card_id = v_occupant_id;
+  end if;
 
   return json_build_object('ok', true);
 end;
