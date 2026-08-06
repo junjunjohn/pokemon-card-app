@@ -1420,7 +1420,22 @@ async function loadPortfolio() {
     return;
   }
 
+  // Show the binder and Saved Cards right away using what get_portfolio
+  // already gave us (name/image/position) — that's everything the binder
+  // grid needs. Don't make it sit blank while N live price lookups run,
+  // when the only thing waiting on those is the signal dot / price text.
+  const loadingSignal = { label: "HOLD", score: 0, reasons: ["Loading live price…"], band: null };
+  currentPortfolioCards = rows.map((row) => ({
+    id: row.card_id,
+    name: row.card_name,
+    images: { small: row.card_image },
+    set: { name: row.set_name },
+    signal: loadingSignal,
+    binder_id: row.binder_id,
+    binder_position: row.binder_position,
+  }));
   els.portfolioStatus.textContent = `Loading live prices for ${rows.length} saved card${rows.length === 1 ? "" : "s"}…`;
+  renderPortfolio();
 
   // Fetch each card's live price in parallel (capped concurrency) instead of
   // one at a time — sequentially, N saved cards took roughly N times as long
@@ -1462,7 +1477,18 @@ async function loadPortfolio() {
   }
   await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, rows.length) }, fetchOne));
 
-  currentPortfolioCards = cards;
+  // Take the freshly fetched name/image/signal, but keep whatever
+  // binder_id/binder_position currentPortfolioCards has *now* rather than
+  // each row's original snapshot — a drag made while prices were still
+  // loading already mutated those in place (see placeCardAtPosition), and
+  // overwriting wholesale here would silently undo it.
+  const enrichedById = new Map(cards.map((c) => [c.id, c]));
+  currentPortfolioCards = currentPortfolioCards.map((placeholder) => {
+    const enriched = enrichedById.get(placeholder.id);
+    return enriched
+      ? { ...enriched, binder_id: placeholder.binder_id, binder_position: placeholder.binder_position }
+      : placeholder;
+  });
   els.portfolioStatus.textContent = `${cards.length} card${cards.length === 1 ? "" : "s"} in your portfolio.`;
   renderPortfolio();
 }
