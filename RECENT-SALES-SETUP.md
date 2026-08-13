@@ -35,12 +35,19 @@ supabase link --project-ref fdoasinihkhazzqqynrj
 Then deploy the function:
 
 ```bash
-supabase functions deploy recent-sales
+supabase functions deploy recent-sales --no-verify-jwt
 ```
 
 The function needs **no secrets** — it only calls public TCGplayer endpoints.
-It runs with the default JWT check, and the client already sends the anon key
-(`Authorization: Bearer <anon key>`), so no extra config is required.
+
+`--no-verify-jwt` is required: the page calls this function from the browser,
+which first sends a CORS **preflight** (`OPTIONS`) request *without* an
+Authorization header. With JWT verification on, Supabase rejects that preflight
+and the browser blocks the real call (you'll see a CORS error in the console).
+Turning it off lets the preflight through; the data is public price info, so
+there's nothing to protect. `supabase/config.toml` also pins
+`verify_jwt = false` for this function, so a plain `supabase functions deploy
+recent-sales` will pick it up too.
 
 ## Test it
 

@@ -1,0 +1,9 @@
+# Supabase project config (used by the CLI on deploy).
+project_id = "pokemon-card-app"
+
+# The recent-sales function returns only public card price data and is called
+# from the browser. JWT verification must be OFF, otherwise the platform
+# rejects the CORS preflight (OPTIONS) request — which browsers send without an
+# Authorization header — and the real request never goes through.
+[functions.recent-sales]
+verify_jwt = false

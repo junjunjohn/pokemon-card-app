@@ -705,111 +705,117 @@ function scoreColor(score) {
   return "var(--hold)";
 }
 
-function buildPriceTableRows(card) {
-  const rows = [];
-  const tcg = card.tcgplayer?.prices;
-  if (tcg) {
-    for (const [variant, p] of Object.entries(tcg)) {
-      rows.push(`<tr>
-        <td>TCGplayer — ${variant}</td>
-        <td>${fmt(p.low, "USD")}</td>
-        <td>${fmt(p.mid, "USD")}</td>
-        <td>${fmt(p.high, "USD")}</td>
-        <td>${fmt(p.market, "USD")}</td>
-      </tr>`);
-    }
-  }
-  const cm = card.cardmarket?.prices;
-  if (cm) {
-    rows.push(`<tr>
-      <td>Cardmarket — trend</td>
-      <td>${fmt(cm.lowPrice, "EUR")}</td>
-      <td>${fmt(cm.avg7, "EUR")}</td>
-      <td>${fmt(cm.avg30, "EUR")}</td>
-      <td>${fmt(cm.trendPrice, "EUR")}</td>
-    </tr>`);
-  }
-  return rows.join("");
-}
-
-// "Recent sold" panel for the detail modal. Two layers:
-//   1. Live individual sales — the actual last N completed TCGplayer sales,
-//      fetched from our recent-sales Edge Function (see supabase/functions).
-//      Only works for cards that carry a pokemontcg.io tcgplayer.url (the
-//      Edge Function follows it to resolve a product id); rendered async.
-//   2. Average sold price — Cardmarket's rolling avg1/avg7/avg30, always shown
-//      as a fallback / complement since it's already in the card data.
-// buildSoldAveragesSection() renders the synchronous markup (the averages plus
-// an empty slot); loadRecentSales() fills the slot in after the modal is open.
+// "Recent sold" panel for the detail modal. Two parts:
+//   1. Live individual sales — the last 5 completed TCGplayer sales, fetched
+//      from our recent-sales Edge Function (see supabase/functions). Only works
+//      for cards carrying a pokemontcg.io tcgplayer.url (the function follows it
+//      to resolve a product id); rendered async.
+//   2. Average-sold summary — Current / 7D / 30D:
+//        Current = mean of those last 5 TCGplayer sales (filled in async).
+//        7D / 30D = Cardmarket's dated avg7 / avg30 — the only free source with
+//                   real 7-/30-day sold history. TCGplayer's endpoint only
+//                   exposes the latest ~5 sales, not a dated history, so these
+//                   are "—" for cards with no Cardmarket data.
+// buildSoldAveragesSection() renders the synchronous markup (7D/30D + an empty
+// live slot + a Current placeholder); loadRecentSales() fills both in later.
 
 const RECENT_SALES_ENDPOINT = supabaseConfigured ? `${SUPABASE_URL}/functions/v1/recent-sales` : null;
 
-function buildAverageSoldBlock(card) {
+// The "Current" figure the async live-sales average fills in. When live sales
+// aren't available (no product match, fetch failed, or the card has no
+// tcgplayer.url at all) we fall back to a synchronous estimate: Cardmarket's
+// 1-day average, else TCGplayer's market price.
+function currentSoldFallback(card) {
   const cm = card.cardmarket?.prices;
-  const hasCmAverages =
-    cm && [cm.avg1, cm.avg7, cm.avg30, cm.averageSellPrice].some((v) => v != null);
+  if (cm?.avg1 != null) return { value: cm.avg1, currency: "EUR" };
+  const tcg = getTcgVariant(card);
+  if (tcg?.market != null) return { value: tcg.market, currency: "USD" };
+  return null;
+}
 
-  if (!hasCmAverages) {
-    const tcg = getTcgVariant(card);
-    if (tcg?.market != null) {
-      return `
-        <p class="sold-note">No Cardmarket sold-average history — showing
-        TCGplayer's market price (its own estimate from recent sales) instead.</p>
-        <div class="sold-grid">
-          <div class="sold-cell">
-            <span class="sold-cell-label">Market (recent sales)</span>
-            <strong class="sold-cell-value">${fmt(tcg.market, "USD")}</strong>
-          </div>
-        </div>`;
-    }
-    return "";
+// Sets the "Current" cell to the mean of the passed sales (USD), or to the
+// synchronous fallback when there are none.
+function fillCurrentSold(card, sales) {
+  const el = document.getElementById("currentSoldValue");
+  if (!el) return;
+  const prices = (sales || []).map((s) => s.price).filter((v) => v != null && !Number.isNaN(v));
+  if (prices.length) {
+    el.textContent = fmt(prices.reduce((a, b) => a + b, 0) / prices.length, "USD");
+    return;
+  }
+  const fb = currentSoldFallback(card);
+  el.textContent = fb ? fmt(fb.value, fb.currency) : "—";
+}
+
+function buildSoldSummary(card) {
+  const cm = card.cardmarket?.prices;
+  const canFetchLive = !!(RECENT_SALES_ENDPOINT && card.tcgplayer?.url);
+
+  // Nothing to show at all — no live sales, no Cardmarket, no TCGplayer price.
+  if (!canFetchLive && !cm && !currentSoldFallback(card)) return "";
+
+  // 7D / 30D come only from Cardmarket's dated averages.
+  const cell7d = cm?.avg7 != null ? fmt(cm.avg7, "EUR") : "—";
+  const cell30d = cm?.avg30 != null ? fmt(cm.avg30, "EUR") : "—";
+
+  // Current is filled async from the last 5 sales; render a placeholder when
+  // we're going to fetch, otherwise the synchronous fallback right away.
+  let currentInner;
+  if (canFetchLive) {
+    currentInner = `<strong class="sold-cell-value" id="currentSoldValue">…</strong>`;
+  } else {
+    const fb = currentSoldFallback(card);
+    currentInner = `<strong class="sold-cell-value" id="currentSoldValue">${fb ? fmt(fb.value, fb.currency) : "—"}</strong>`;
   }
 
   const momentum = getMomentumPct(card); // 7d vs 30d, % — may be null
   let trendHtml = "";
   if (momentum != null && Math.abs(momentum) >= 0.05) {
     const up = momentum > 0;
-    const cls = up ? "up" : "down";
-    const arrow = up ? "▲" : "▼";
-    trendHtml = `<span class="sold-trend ${cls}" title="7-day average vs 30-day average">
-      ${arrow} ${Math.abs(momentum).toFixed(1)}% <span class="sold-trend-note">7d vs 30d</span>
+    trendHtml = `<span class="sold-trend ${up ? "up" : "down"}" title="7-day average vs 30-day average">
+      ${up ? "▲" : "▼"} ${Math.abs(momentum).toFixed(1)}% <span class="sold-trend-note">7d vs 30d</span>
     </span>`;
   }
 
-  const cell = (label, value) => `
-    <div class="sold-cell">
-      <span class="sold-cell-label">${label}</span>
-      <strong class="sold-cell-value">${value != null ? fmt(value, "EUR") : "—"}</strong>
-    </div>`;
-
   return `
     <div class="sold-heading-row">
-      <h4 class="sold-subhead">Average sold price (Cardmarket)</h4>
+      <h4 class="sold-subhead">Average sold price</h4>
       ${trendHtml}
     </div>
     <div class="sold-grid">
-      ${cell("Last 24h", cm.avg1)}
-      ${cell("Last 7 days", cm.avg7)}
-      ${cell("Last 30 days", cm.avg30)}
-      ${cell("All-time avg", cm.averageSellPrice)}
-    </div>`;
+      <div class="sold-cell">
+        <span class="sold-cell-label">Current</span>
+        ${currentInner}
+      </div>
+      <div class="sold-cell">
+        <span class="sold-cell-label">7D</span>
+        <strong class="sold-cell-value">${cell7d}</strong>
+      </div>
+      <div class="sold-cell">
+        <span class="sold-cell-label">30D</span>
+        <strong class="sold-cell-value">${cell30d}</strong>
+      </div>
+    </div>
+    <p class="sold-note">Current = average of the last 5 TCGplayer sales. 7D / 30D =
+    Cardmarket's 7- and 30-day sold averages (TCGplayer doesn't publish dated
+    history, so those show “—” for cards with no Cardmarket data).</p>`;
 }
 
 function buildSoldAveragesSection(card) {
-  const avgBlock = buildAverageSoldBlock(card);
+  const summary = buildSoldSummary(card);
   // The live-sales slot only makes sense when we have a URL for the Edge
-  // Function to resolve — otherwise skip it and just show the averages.
+  // Function to resolve — otherwise skip it and just show the summary.
   const canFetchLive = !!(RECENT_SALES_ENDPOINT && card.tcgplayer?.url);
   const liveSlot = canFetchLive
     ? `<div id="liveSalesSlot" class="live-sales"><p class="sold-note">Loading last 5 sold…</p></div>`
     : "";
 
-  if (!avgBlock && !liveSlot) return "";
+  if (!summary && !liveSlot) return "";
 
   return `
     <h3>Recent sold</h3>
     ${liveSlot}
-    ${avgBlock}`;
+    ${summary}`;
 }
 
 function timeAgo(dateStr) {
@@ -823,13 +829,17 @@ function timeAgo(dateStr) {
   return months === 1 ? "1 month ago" : `${months} months ago`;
 }
 
-function renderLiveSales({ match, sales }) {
+function renderLiveSales(card, { match, sales }) {
+  // Fill the "Current" cell from these sales (or fall back) regardless of
+  // whether we can render the individual-sales table below.
+  fillCurrentSold(card, match === "exact" ? sales : null);
+
   const slot = document.getElementById("liveSalesSlot");
   if (!slot) return;
 
   if (match !== "exact" || !sales?.length) {
     // No product match, or no sales on record — quietly drop the live block;
-    // the averages below already cover the "recent sold" intent.
+    // the Current/7D/30D summary below already covers the "recent sold" intent.
     slot.remove();
     return;
   }
@@ -870,11 +880,12 @@ async function loadRecentSales(card) {
       body: JSON.stringify({ tcgplayerUrl: card.tcgplayer.url, limit: 5 }),
     });
     if (!res.ok) throw new Error(`recent-sales ${res.status}`);
-    renderLiveSales(await res.json());
+    renderLiveSales(card, await res.json());
   } catch {
-    // Best-effort — the averages block already gives a "recent sold" figure,
-    // so a failed/undeployed function just means the live list doesn't appear.
+    // Best-effort — drop the live list and fall the "Current" figure back to a
+    // synchronous estimate so it never stays stuck on the "…" placeholder.
     document.getElementById("liveSalesSlot")?.remove();
+    fillCurrentSold(card, null);
   }
 }
 
@@ -902,12 +913,6 @@ function openCardDetail(card) {
     </ul>
 
     ${buildSoldAveragesSection(card)}
-
-    <h3>Price comparison</h3>
-    <table class="price-table">
-      <thead><tr><th>Source</th><th>Low</th><th>Mid / 7d</th><th>High / 30d</th><th>Market / Trend</th></tr></thead>
-      <tbody>${buildPriceTableRows(card)}</tbody>
-    </table>
   `;
 
   els.cardModal.classList.remove("hidden");
