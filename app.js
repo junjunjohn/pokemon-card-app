@@ -43,6 +43,15 @@ const els = {
   showLogin: document.getElementById("showLogin"),
   logoutBtn: document.getElementById("logoutBtn"),
   currentUser: document.getElementById("currentUser"),
+  alertsBtn: document.getElementById("alertsBtn"),
+  alertsModal: document.getElementById("alertsModal"),
+  closeAlertsBtn: document.getElementById("closeAlertsBtn"),
+  alertsState: document.getElementById("alertsState"),
+  alertsLoginToggle: document.getElementById("alertsLoginToggle"),
+  alertsDigestToggle: document.getElementById("alertsDigestToggle"),
+  alertsStatus: document.getElementById("alertsStatus"),
+  alertsSaveBtn: document.getElementById("alertsSaveBtn"),
+  alertsTestBtn: document.getElementById("alertsTestBtn"),
   tabNav: document.getElementById("tabNav"),
   topPicksTab: document.getElementById("topPicksTab"),
   portfolioTab: document.getElementById("portfolioTab"),
@@ -723,6 +732,66 @@ function buildPriceTableRows(card) {
   return rows.join("");
 }
 
+// "Recent sold" panel for the detail modal. The data sources give us rolling
+// *averages* of completed sales (Cardmarket's avg1/avg7/avg30), not a list of
+// individual transactions — so this shows the average sold price over the last
+// 24h / 7 days / 30 days, plus the 7d-vs-30d trend (same figure computed by
+// getMomentumPct). Falls back to the TCGplayer market price when a card has no
+// Cardmarket history at all.
+function buildSoldAveragesSection(card) {
+  const cm = card.cardmarket?.prices;
+  const hasCmAverages =
+    cm && [cm.avg1, cm.avg7, cm.avg30, cm.averageSellPrice].some((v) => v != null);
+
+  if (!hasCmAverages) {
+    const tcg = getTcgVariant(card);
+    if (tcg?.market != null) {
+      return `
+        <h3>Recent sold</h3>
+        <p class="sold-note">No daily sold-average history for this card — showing
+        TCGplayer's market price (its estimate from recent sales) instead.</p>
+        <div class="sold-grid">
+          <div class="sold-cell">
+            <span class="sold-cell-label">Market (recent sales)</span>
+            <strong class="sold-cell-value">${fmt(tcg.market, "USD")}</strong>
+          </div>
+        </div>`;
+    }
+    return "";
+  }
+
+  const momentum = getMomentumPct(card); // 7d vs 30d, % — may be null
+  let trendHtml = "";
+  if (momentum != null && Math.abs(momentum) >= 0.05) {
+    const up = momentum > 0;
+    const cls = up ? "up" : "down";
+    const arrow = up ? "▲" : "▼";
+    trendHtml = `<span class="sold-trend ${cls}" title="7-day average vs 30-day average">
+      ${arrow} ${Math.abs(momentum).toFixed(1)}% <span class="sold-trend-note">7d vs 30d</span>
+    </span>`;
+  }
+
+  const cell = (label, value) => `
+    <div class="sold-cell">
+      <span class="sold-cell-label">${label}</span>
+      <strong class="sold-cell-value">${value != null ? fmt(value, "EUR") : "—"}</strong>
+    </div>`;
+
+  return `
+    <div class="sold-heading-row">
+      <h3>Recent sold — average price</h3>
+      ${trendHtml}
+    </div>
+    <p class="sold-note">Average of completed sales on Cardmarket. Not individual
+    transactions — the sources report rolling averages, not a per-sale log.</p>
+    <div class="sold-grid">
+      ${cell("Last 24h", cm.avg1)}
+      ${cell("Last 7 days", cm.avg7)}
+      ${cell("Last 30 days", cm.avg30)}
+      ${cell("All-time avg", cm.averageSellPrice)}
+    </div>`;
+}
+
 function openCardDetail(card) {
   const { signal } = card;
   const pct = Math.round(((signal.score + 100) / 200) * 100);
@@ -745,6 +814,8 @@ function openCardDetail(card) {
     <ul class="explain-list">
       ${signal.reasons.map((r) => `<li>${r}</li>`).join("")}
     </ul>
+
+    ${buildSoldAveragesSection(card)}
 
     <h3>Price comparison</h3>
     <table class="price-table">
@@ -828,6 +899,8 @@ function showApp(username) {
   const portfolioBtn = els.tabNav.querySelector('[data-tab="portfolioTab"]');
   topPicksBtn.classList.toggle("hidden", !canTopPicks);
   els.adminTabBtn.classList.toggle("hidden", !isAdmin);
+  // Top Picks alerts are a single shared channel managed by an admin.
+  els.alertsBtn.classList.toggle("hidden", !isAdmin);
 
   loadFxRates();
 
@@ -980,6 +1053,79 @@ els.tabNav.addEventListener("click", (e) => {
   if (targetId === "portfolioTab") loadPortfolio();
   if (targetId === "adminTab") loadAdminUsers();
 });
+
+// ---------- Discord alerts (admin-only, one shared channel) ----------
+// One shared webhook (set server-side via SQL) powers both login/signup pings
+// and the Top Picks daily digest. This dialog never handles the URL — it only
+// shows whether the channel is connected, toggles each feature, and sends a
+// test. The digest itself is posted by supabase/functions/top-picks-digest.
+
+function renderAlertsState(data) {
+  const connected = !!data.webhook_set;
+  els.alertsState.textContent = connected
+    ? "✅ Connected to Discord."
+    : "⚠️ No webhook configured yet — an admin sets it via SQL (see the setup doc).";
+  els.alertsLoginToggle.checked = !!data.login_pings_enabled;
+  els.alertsDigestToggle.checked = !!data.top_picks_digest_enabled;
+  // Testing only works once a webhook is configured.
+  els.alertsTestBtn.disabled = !connected;
+}
+
+async function openAlertsModal() {
+  els.alertsStatus.textContent = "";
+  els.alertsState.textContent = "Loading…";
+  els.alertsModal.classList.remove("hidden");
+
+  const { data, error } = await sb.rpc("get_alert_settings", {
+    p_session_token: getSessionToken(),
+  });
+  if (error) {
+    if (isSessionExpiredError(error)) return handleSessionExpired();
+    els.alertsState.textContent = error.message;
+    return;
+  }
+  renderAlertsState(data);
+}
+
+async function saveAlertsSettings() {
+  els.alertsSaveBtn.disabled = true;
+  els.alertsStatus.textContent = "Saving…";
+
+  const { error } = await sb.rpc("set_alert_toggles", {
+    p_session_token: getSessionToken(),
+    p_login_pings: els.alertsLoginToggle.checked,
+    p_top_picks_digest: els.alertsDigestToggle.checked,
+  });
+  els.alertsSaveBtn.disabled = false;
+  if (error) {
+    if (isSessionExpiredError(error)) return handleSessionExpired();
+    els.alertsStatus.textContent = error.message;
+    return;
+  }
+  els.alertsStatus.textContent = "Saved.";
+}
+
+async function sendTestAlert() {
+  els.alertsTestBtn.disabled = true;
+  els.alertsStatus.textContent = "Sending test message…";
+  const { error } = await sb.rpc("send_test_alert", {
+    p_session_token: getSessionToken(),
+  });
+  els.alertsTestBtn.disabled = false;
+  if (error) {
+    if (isSessionExpiredError(error)) return handleSessionExpired();
+    els.alertsStatus.textContent = error.message;
+    return;
+  }
+  // net.http_post is fire-and-forget, so we can only confirm it was queued —
+  // the proof is the message actually landing in the Discord channel.
+  els.alertsStatus.textContent = "Test sent — check your Discord channel.";
+}
+
+els.alertsBtn.addEventListener("click", openAlertsModal);
+els.alertsTestBtn.addEventListener("click", sendTestAlert);
+els.closeAlertsBtn.addEventListener("click", () => els.alertsModal.classList.add("hidden"));
+els.alertsSaveBtn.addEventListener("click", saveAlertsSettings);
 
 // ---------- Admin (manage per-user Top Picks access) ----------
 
@@ -1320,6 +1466,27 @@ function isSafeImageUrl(url) {
   }
 }
 
+// Catches the "pasted a webpage link, not an image link" mistake before
+// save — background-image just silently renders nothing for a URL that
+// returns HTML instead of image bytes, with no error the user would ever
+// see on their own.
+function urlLoadsAsImage(url, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      img.onload = img.onerror = null;
+      resolve(ok);
+    };
+    img.onload = () => finish(true);
+    img.onerror = () => finish(false);
+    img.src = url;
+    setTimeout(() => finish(false), timeoutMs);
+  });
+}
+
 function renderBinder() {
   const binder = getActiveBinder();
   els.binderEmptyState.classList.toggle("hidden", userBinders.length > 0);
@@ -1353,7 +1520,7 @@ function renderBinder() {
   const totalPages = Math.max(dataPages, binderPageIndex + 1);
 
   els.binderPageLabel.textContent = `Page ${binderPageIndex + 1} of ${totalPages}`;
-  els.binderPrevPage.disabled = binderPageIndex === 0;
+  els.binderPrevPage.disabled = false;
   els.binderNextPage.disabled = false;
 
   els.binderPage.innerHTML = ""; // --binder-cols is set on els.binderWrap above; .binder-page inherits it
@@ -1686,6 +1853,19 @@ els.createBinderConfirmBtn.addEventListener("click", async () => {
   if (coverImageUrl && !isSafeImageUrl(coverImageUrl)) {
     els.createBinderStatus.textContent = "Cover image URL must start with http:// or https://";
     return;
+  }
+  if (coverImageUrl) {
+    els.createBinderConfirmBtn.disabled = true;
+    els.createBinderStatus.textContent = "Checking image URL…";
+    const loads = await urlLoadsAsImage(coverImageUrl);
+    if (!loads) {
+      els.createBinderConfirmBtn.disabled = false;
+      els.createBinderStatus.textContent =
+        "That didn't load as an image — make sure it's a direct link to the image file " +
+        "(right-click the image itself → Copy image address), not a link to a web page.";
+      return;
+    }
+    els.createBinderStatus.textContent = "";
   }
   els.createBinderConfirmBtn.disabled = true;
   const { data, error } = editingBinderId

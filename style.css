@@ -58,6 +58,16 @@ body {
 }
 .ghost-btn:hover { border-color: var(--accent-2); }
 
+/* Checkbox rows in the Discord Alerts dialog. */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  cursor: pointer;
+}
+.toggle-row input { width: 16px; height: 16px; cursor: pointer; }
+
 main { max-width: 1200px; margin: 0 auto; padding: 24px 20px 60px; }
 
 .search-bar {
@@ -261,6 +271,19 @@ main { max-width: 1200px; margin: 0 auto; padding: 24px 20px 60px; }
 .score-bar-fill { height: 100%; border-radius: 6px; }
 
 .explain-list { font-size: 13px; color: var(--text-dim); line-height: 1.6; padding-left: 18px; }
+
+/* Recent sold — average price panel (card detail modal) */
+.sold-heading-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+.sold-heading-row h3 { margin: 0; }
+.sold-trend { display: inline-flex; align-items: baseline; gap: 4px; font-size: 13px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.sold-trend.up { color: var(--buy); background: color-mix(in srgb, var(--buy) 16%, transparent); }
+.sold-trend.down { color: var(--sell); background: color-mix(in srgb, var(--sell) 16%, transparent); }
+.sold-trend-note { font-size: 11px; font-weight: 500; opacity: 0.8; }
+.sold-note { font-size: 12px; color: var(--text-dim); margin: 6px 0 12px; line-height: 1.5; }
+.sold-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
+.sold-cell { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.sold-cell-label { display: block; font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
+.sold-cell-value { display: block; font-size: 18px; margin-top: 4px; }
 
 footer {
   text-align: center;
