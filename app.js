@@ -732,13 +732,19 @@ function buildPriceTableRows(card) {
   return rows.join("");
 }
 
-// "Recent sold" panel for the detail modal. The data sources give us rolling
-// *averages* of completed sales (Cardmarket's avg1/avg7/avg30), not a list of
-// individual transactions — so this shows the average sold price over the last
-// 24h / 7 days / 30 days, plus the 7d-vs-30d trend (same figure computed by
-// getMomentumPct). Falls back to the TCGplayer market price when a card has no
-// Cardmarket history at all.
-function buildSoldAveragesSection(card) {
+// "Recent sold" panel for the detail modal. Two layers:
+//   1. Live individual sales — the actual last N completed TCGplayer sales,
+//      fetched from our recent-sales Edge Function (see supabase/functions).
+//      Only works for cards that carry a pokemontcg.io tcgplayer.url (the
+//      Edge Function follows it to resolve a product id); rendered async.
+//   2. Average sold price — Cardmarket's rolling avg1/avg7/avg30, always shown
+//      as a fallback / complement since it's already in the card data.
+// buildSoldAveragesSection() renders the synchronous markup (the averages plus
+// an empty slot); loadRecentSales() fills the slot in after the modal is open.
+
+const RECENT_SALES_ENDPOINT = supabaseConfigured ? `${SUPABASE_URL}/functions/v1/recent-sales` : null;
+
+function buildAverageSoldBlock(card) {
   const cm = card.cardmarket?.prices;
   const hasCmAverages =
     cm && [cm.avg1, cm.avg7, cm.avg30, cm.averageSellPrice].some((v) => v != null);
@@ -747,9 +753,8 @@ function buildSoldAveragesSection(card) {
     const tcg = getTcgVariant(card);
     if (tcg?.market != null) {
       return `
-        <h3>Recent sold</h3>
-        <p class="sold-note">No daily sold-average history for this card — showing
-        TCGplayer's market price (its estimate from recent sales) instead.</p>
+        <p class="sold-note">No Cardmarket sold-average history — showing
+        TCGplayer's market price (its own estimate from recent sales) instead.</p>
         <div class="sold-grid">
           <div class="sold-cell">
             <span class="sold-cell-label">Market (recent sales)</span>
@@ -779,17 +784,98 @@ function buildSoldAveragesSection(card) {
 
   return `
     <div class="sold-heading-row">
-      <h3>Recent sold — average price</h3>
+      <h4 class="sold-subhead">Average sold price (Cardmarket)</h4>
       ${trendHtml}
     </div>
-    <p class="sold-note">Average of completed sales on Cardmarket. Not individual
-    transactions — the sources report rolling averages, not a per-sale log.</p>
     <div class="sold-grid">
       ${cell("Last 24h", cm.avg1)}
       ${cell("Last 7 days", cm.avg7)}
       ${cell("Last 30 days", cm.avg30)}
       ${cell("All-time avg", cm.averageSellPrice)}
     </div>`;
+}
+
+function buildSoldAveragesSection(card) {
+  const avgBlock = buildAverageSoldBlock(card);
+  // The live-sales slot only makes sense when we have a URL for the Edge
+  // Function to resolve — otherwise skip it and just show the averages.
+  const canFetchLive = !!(RECENT_SALES_ENDPOINT && card.tcgplayer?.url);
+  const liveSlot = canFetchLive
+    ? `<div id="liveSalesSlot" class="live-sales"><p class="sold-note">Loading last 5 sold…</p></div>`
+    : "";
+
+  if (!avgBlock && !liveSlot) return "";
+
+  return `
+    <h3>Recent sold</h3>
+    ${liveSlot}
+    ${avgBlock}`;
+}
+
+function timeAgo(dateStr) {
+  const t = Date.parse(dateStr);
+  if (Number.isNaN(t)) return "";
+  const days = Math.floor((Date.now() - t) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "1 day ago";
+  if (days < 30) return `${days} days ago`;
+  const months = Math.round(days / 30);
+  return months === 1 ? "1 month ago" : `${months} months ago`;
+}
+
+function renderLiveSales({ match, sales }) {
+  const slot = document.getElementById("liveSalesSlot");
+  if (!slot) return;
+
+  if (match !== "exact" || !sales?.length) {
+    // No product match, or no sales on record — quietly drop the live block;
+    // the averages below already cover the "recent sold" intent.
+    slot.remove();
+    return;
+  }
+
+  const rows = sales
+    .map(
+      (s) => `
+      <tr>
+        <td class="ls-price">${fmt(s.price, "USD")}</td>
+        <td>${s.condition || "—"}${s.variant && s.variant !== "Normal" ? ` · ${s.variant}` : ""}</td>
+        <td>${s.quantity > 1 ? `×${s.quantity}` : ""}</td>
+        <td class="ls-date">${timeAgo(s.date)}</td>
+      </tr>`,
+    )
+    .join("");
+
+  slot.innerHTML = `
+    <div class="sold-heading-row">
+      <h4 class="sold-subhead">Last ${sales.length} sold (TCGplayer)</h4>
+    </div>
+    <table class="live-sales-table">
+      <thead><tr><th>Price</th><th>Condition</th><th>Qty</th><th>When</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="sold-note">Actual completed sales on TCGplayer, most recent first. Price excludes shipping.</p>`;
+}
+
+async function loadRecentSales(card) {
+  if (!RECENT_SALES_ENDPOINT || !card.tcgplayer?.url) return;
+  try {
+    const res = await fetch(RECENT_SALES_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ tcgplayerUrl: card.tcgplayer.url, limit: 5 }),
+    });
+    if (!res.ok) throw new Error(`recent-sales ${res.status}`);
+    renderLiveSales(await res.json());
+  } catch {
+    // Best-effort — the averages block already gives a "recent sold" figure,
+    // so a failed/undeployed function just means the live list doesn't appear.
+    document.getElementById("liveSalesSlot")?.remove();
+  }
 }
 
 function openCardDetail(card) {
@@ -825,6 +911,9 @@ function openCardDetail(card) {
   `;
 
   els.cardModal.classList.remove("hidden");
+
+  // Fill in the live "last 5 sold" list async, after the modal is on screen.
+  loadRecentSales(card);
 }
 
 // ---------- Top 20 flow ----------

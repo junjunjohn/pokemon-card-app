@@ -284,6 +284,13 @@ main { max-width: 1200px; margin: 0 auto; padding: 24px 20px 60px; }
 .sold-cell { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
 .sold-cell-label { display: block; font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
 .sold-cell-value { display: block; font-size: 18px; margin-top: 4px; }
+.sold-subhead { margin: 0; font-size: 14px; color: var(--text-dim); }
+.live-sales { margin-bottom: 14px; }
+.live-sales-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+.live-sales-table th, .live-sales-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.live-sales-table th { color: var(--text-dim); font-weight: 600; }
+.live-sales-table .ls-price { font-weight: 700; }
+.live-sales-table .ls-date { color: var(--text-dim); white-space: nowrap; }
 
 footer {
   text-align: center;
